@@ -1,0 +1,40 @@
+# Xcode
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist
+DerivedData/
+build/
+*.pbxuser
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Swift Package Manager
+.build/
+Packages/
+Package.resolved
+.swiftpm/
+
+# CocoaPods
+Pods/
+
+# macOS
+.DS_Store
+*.swp
+*~.nib
+
+# Model files (too large for git)
+*.gguf
+*.mlmodel
+*.mlpackage
+*.mlmodelc
+Models/
+
+# IDE
+.idea/
+*.xcworkspace
+!*.xcodeproj/project.xcworkspace/
