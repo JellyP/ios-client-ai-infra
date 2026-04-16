@@ -106,6 +106,27 @@ struct BenchmarkView: View {
                                     .padding(.vertical, 1)
                                     .background(provider.architectureType == .moe ? Color.orange.opacity(0.15) : Color.purple.opacity(0.15))
                                     .clipShape(Capsule())
+
+                                if provider.providerType == .onDevice,
+                                   let model = GGUFModelCatalog.allModels.first(where: { $0.id == provider.id }) {
+                                    if ModelDownloadManager.shared.isModelDownloaded(model) {
+                                        Text("已下载")
+                                            .font(.caption2)
+                                            .foregroundStyle(.green)
+                                            .padding(.horizontal, 4)
+                                            .padding(.vertical, 1)
+                                            .background(Color.green.opacity(0.12))
+                                            .clipShape(Capsule())
+                                    } else {
+                                        Text("未下载")
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                            .padding(.horizontal, 4)
+                                            .padding(.vertical, 1)
+                                            .background(Color(.systemGray5))
+                                            .clipShape(Capsule())
+                                    }
+                                }
                             }
                             Text(provider.modelInfo.parameterCount)
                                 .font(.caption)

@@ -1,10 +1,13 @@
 import SwiftUI
+import Textual
 
 // MARK: - 聊天界面
 
-/// 主聊天界面，支持切换模型进行对话
+/// 主聊天界面，支持切换模型进行对话，保存历史记录
 struct ChatView: View {
     @EnvironmentObject private var modelManager: ModelManager
+    @StateObject private var historyStore = ChatHistoryStore.shared
+
     @State private var inputText = ""
     @State private var messages: [ChatMessage] = []
     @State private var isGenerating = false
@@ -12,6 +15,9 @@ struct ChatView: View {
     @State private var lastMetrics: GenerationMetrics?
     @State private var showMetrics = false
     @State private var showModelPicker = false
+    @State private var showHistory = false
+    @State private var currentSessionId: UUID = UUID()
+    @FocusState private var isInputFocused: Bool
 
     var body: some View {
         NavigationStack {
@@ -38,21 +44,72 @@ struct ChatView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        showMetrics.toggle()
-                    } label: {
-                        Image(systemName: showMetrics ? "chart.bar.fill" : "chart.bar")
+                    HStack(spacing: 12) {
+                        Button {
+                            showMetrics.toggle()
+                        } label: {
+                            Image(systemName: showMetrics ? "chart.bar.fill" : "chart.bar")
+                        }
+                        Button {
+                            startNewSession()
+                        } label: {
+                            Image(systemName: "square.and.pencil")
+                        }
                     }
                 }
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("清空") {
-                        messages.removeAll()
-                        currentResponse = ""
-                        lastMetrics = nil
+                    Button {
+                        showHistory = true
+                    } label: {
+                        Image(systemName: "clock.arrow.circlepath")
                     }
                 }
             }
+            .sheet(isPresented: $showHistory) {
+                ChatHistorySheet(
+                    historyStore: historyStore,
+                    onSelect: { session in
+                        loadSession(session)
+                        showHistory = false
+                    }
+                )
+            }
         }
+    }
+
+    // MARK: - 新建 / 加载会话
+
+    private func startNewSession() {
+        saveCurrentSessionIfNeeded()
+        messages.removeAll()
+        currentResponse = ""
+        lastMetrics = nil
+        currentSessionId = UUID()
+    }
+
+    private func loadSession(_ session: ChatSession) {
+        saveCurrentSessionIfNeeded()
+        messages = session.messages
+        currentSessionId = session.id
+        currentResponse = ""
+        lastMetrics = nil
+        // 切换到对应模型
+        if modelManager.selectedModelId != session.modelId {
+            modelManager.selectModel(id: session.modelId)
+        }
+    }
+
+    private func saveCurrentSessionIfNeeded() {
+        guard !messages.isEmpty,
+              let modelId = modelManager.selectedModelId else { return }
+
+        let title = messages.first(where: { $0.role == .user })?.content.prefix(30)
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? "对话"
+
+        var session = ChatSession(id: currentSessionId, title: String(title), modelId: modelId)
+        session.messages = messages
+        session.updatedAt = Date()
+        historyStore.save(session)
     }
 
     // MARK: - 模型选择器
@@ -125,6 +182,10 @@ struct ChatView: View {
                 }
                 .padding()
             }
+            .scrollDismissesKeyboard(.interactively)
+            .onTapGesture {
+                isInputFocused = false
+            }
             .onChange(of: messages.count) {
                 withAnimation {
                     if let last = messages.last {
@@ -169,9 +230,9 @@ struct ChatView: View {
                 .clipShape(Circle())
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(currentResponse)
-                    .font(.body)
-                    .textSelection(.enabled)
+                StructuredText(markdown: currentResponse)
+                    .textual.structuredTextStyle(.gitHub)
+                    .textual.textSelection(.enabled)
 
                 if isGenerating {
                     HStack(spacing: 4) {
@@ -237,6 +298,7 @@ struct ChatView: View {
     private var inputArea: some View {
         HStack(alignment: .bottom, spacing: 8) {
             TextField("输入消息...", text: $inputText, axis: .vertical)
+                .focused($isInputFocused)
                 .lineLimit(1...5)
                 .textFieldStyle(.plain)
                 .padding(10)
@@ -307,6 +369,11 @@ struct ChatView: View {
                             .padding(.vertical, 2)
                             .background(provider.architectureType == .moe ? Color.orange.opacity(0.15) : Color.blue.opacity(0.15))
                             .clipShape(Capsule())
+
+                        // 下载状态标识（仅端侧模型）
+                        if provider.providerType == .onDevice {
+                            downloadBadge(for: provider)
+                        }
                     }
 
                     Text(provider.description)
@@ -338,11 +405,37 @@ struct ChatView: View {
         .buttonStyle(.plain)
     }
 
+    /// 端侧模型下载状态标识
+    @ViewBuilder
+    private func downloadBadge(for provider: any AIModelProvider) -> some View {
+        if let model = GGUFModelCatalog.allModels.first(where: { $0.id == provider.id }) {
+            if ModelDownloadManager.shared.isModelDownloaded(model) {
+                Text("已下载")
+                    .font(.caption2)
+                    .foregroundStyle(.green)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(Color.green.opacity(0.12))
+                    .clipShape(Capsule())
+            } else {
+                Text("未下载")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(Color(.systemGray5))
+                    .clipShape(Capsule())
+            }
+        }
+    }
+
     // MARK: - Actions
 
     private func sendMessage() {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
+
+        isInputFocused = false
 
         let userMessage = ChatMessage(role: .user, content: text)
         messages.append(userMessage)
@@ -381,6 +474,9 @@ struct ChatView: View {
             }
 
             isGenerating = false
+
+            // 自动保存当前会话
+            saveCurrentSessionIfNeeded()
         }
     }
 
@@ -393,6 +489,78 @@ struct ChatView: View {
             messages.append(assistantMessage)
             currentResponse = ""
         }
+
+        saveCurrentSessionIfNeeded()
+    }
+}
+
+// MARK: - 历史记录面板
+
+struct ChatHistorySheet: View {
+    @ObservedObject var historyStore: ChatHistoryStore
+    let onSelect: (ChatSession) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if historyStore.sessions.isEmpty {
+                    ContentUnavailableView(
+                        "暂无历史对话",
+                        systemImage: "clock",
+                        description: Text("对话结束后会自动保存")
+                    )
+                } else {
+                    List {
+                        ForEach(historyStore.sessions) { session in
+                            Button { onSelect(session) } label: {
+                                sessionRow(session)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .onDelete { offsets in
+                            let ids = offsets.map { historyStore.sessions[$0].id }
+                            ids.forEach { historyStore.delete(id: $0) }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("历史对话")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("关闭") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private func sessionRow(_ session: ChatSession) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(session.title)
+                    .font(.body.weight(.medium))
+                    .lineLimit(1)
+                Spacer()
+                Text(session.updatedAt, style: .relative)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            HStack(spacing: 8) {
+                Text(session.modelId)
+                    .font(.caption2)
+                    .foregroundStyle(.blue)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(Color.blue.opacity(0.1))
+                    .clipShape(Capsule())
+                Text("\(session.messages.count) 条消息")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 2)
     }
 }
 
@@ -432,9 +600,9 @@ struct MessageBubbleView: View {
                 .background(Color.purple.opacity(0.1))
                 .clipShape(Circle())
 
-            Text(message.content)
-                .font(.body)
-                .textSelection(.enabled)
+            StructuredText(markdown: message.content)
+                .textual.structuredTextStyle(.gitHub)
+                .textual.textSelection(.enabled)
                 .padding(12)
                 .background(Color(.systemGray6))
                 .clipShape(RoundedRectangle(cornerRadius: 12))
