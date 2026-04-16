@@ -32,7 +32,8 @@ Pods/
 *.mlmodel
 *.mlpackage
 *.mlmodelc
-Models/
+# 仅忽略下载的 GGUF 模型目录，不影响源码中的 Core/Models/
+Documents/Models/
 
 # IDE
 .idea/
