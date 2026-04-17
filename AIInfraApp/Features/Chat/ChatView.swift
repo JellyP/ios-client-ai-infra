@@ -126,16 +126,6 @@ struct ChatView: View {
                 Text(modelManager.selectedProvider?.displayName ?? "选择模型")
                     .font(.subheadline.weight(.medium))
 
-                if let provider = modelManager.selectedProvider {
-                    Text(provider.providerType.rawValue)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(providerTypeColor.opacity(0.15))
-                        .clipShape(Capsule())
-                }
-
                 Spacer()
 
                 Image(systemName: "chevron.down")
@@ -152,11 +142,10 @@ struct ChatView: View {
     }
 
     private var providerTypeColor: Color {
-        switch modelManager.selectedProvider?.providerType {
-        case .remote: return .blue
-        case .onDevice: return .green
-        case nil: return .gray
+        if modelManager.selectedProvider != nil {
+            return .green
         }
+        return .gray
     }
 
     // MARK: - 消息列表
@@ -230,7 +219,7 @@ struct ChatView: View {
                 .clipShape(Circle())
 
             VStack(alignment: .leading, spacing: 4) {
-                StructuredText(markdown: currentResponse)
+                StructuredText(markdown: currentResponse, syntaxExtensions: [.math])
                     .textual.structuredTextStyle(.gitHub)
                     .textual.textSelection(.enabled)
 
@@ -327,14 +316,8 @@ struct ChatView: View {
     private var modelPickerSheet: some View {
         NavigationStack {
             List {
-                Section("远程模型") {
-                    ForEach(modelManager.remoteProviders, id: \.id) { provider in
-                        modelRow(provider)
-                    }
-                }
-
                 Section("端侧模型") {
-                    ForEach(modelManager.onDeviceProviders, id: \.id) { provider in
+                    ForEach(modelManager.providers, id: \.id) { provider in
                         modelRow(provider)
                     }
                 }
@@ -370,10 +353,8 @@ struct ChatView: View {
                             .background(provider.architectureType == .moe ? Color.orange.opacity(0.15) : Color.blue.opacity(0.15))
                             .clipShape(Capsule())
 
-                        // 下载状态标识（仅端侧模型）
-                        if provider.providerType == .onDevice {
-                            downloadBadge(for: provider)
-                        }
+                        // 下载状态标识
+                        downloadBadge(for: provider)
                     }
 
                     Text(provider.description)
@@ -386,11 +367,9 @@ struct ChatView: View {
                             .font(.caption2.weight(.medium))
                             .foregroundStyle(.blue)
 
-                        if provider.providerType == .onDevice {
-                            Text(MemoryUtils.formatBytes(provider.modelInfo.fileSize))
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
+                        Text(MemoryUtils.formatBytes(provider.modelInfo.fileSize))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
                     }
                 }
 
@@ -600,7 +579,7 @@ struct MessageBubbleView: View {
                 .background(Color.purple.opacity(0.1))
                 .clipShape(Circle())
 
-            StructuredText(markdown: message.content)
+            StructuredText(markdown: message.content, syntaxExtensions: [.math])
                 .textual.structuredTextStyle(.gitHub)
                 .textual.textSelection(.enabled)
                 .padding(12)

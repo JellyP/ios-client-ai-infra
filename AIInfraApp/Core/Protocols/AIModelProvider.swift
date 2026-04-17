@@ -19,11 +19,12 @@ protocol AIModelProvider: AnyObject, Identifiable, Sendable {
     /// 模型描述信息
     var description: String { get }
 
-    /// 模型类型（远程 / 端侧）
-    var providerType: AIModelProviderType { get }
 
     /// 模型架构类型（Dense / MoE）
     var architectureType: ModelArchitectureType { get }
+
+    /// 模型部署类型
+    var providerType: AIModelProviderType { get }
 
     /// 模型当前状态
     var state: AIModelState { get }
@@ -31,7 +32,7 @@ protocol AIModelProvider: AnyObject, Identifiable, Sendable {
     /// 模型信息（参数量、大小等）
     var modelInfo: ModelInfo { get }
 
-    /// 加载模型（端侧模型需要加载到内存，远程模型验证 API 连通性）
+    /// 加载模型到内存
     func load() async throws
 
     /// 卸载模型（释放资源）
@@ -50,11 +51,8 @@ protocol AIModelProvider: AnyObject, Identifiable, Sendable {
 
 // MARK: - 模型提供者类型
 
-/// 模型部署位置分类
+/// 模型部署类型
 enum AIModelProviderType: String, Codable, CaseIterable {
-    /// 远程 API 模型（GPT、Claude 等）
-    case remote = "远程模型"
-
     /// 端侧本地模型
     case onDevice = "端侧模型"
 }
