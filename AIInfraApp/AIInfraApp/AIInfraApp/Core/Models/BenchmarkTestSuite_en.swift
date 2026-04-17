@@ -143,12 +143,14 @@ extension BenchmarkTestCase {
             C. 2400ms
             D. 800ms
 
-            Please reason first, then output your answer letter on the last line (e.g., Answer: B).
+            Please reason briefly, then give your answer.
             """,
             qualityRules: [
-                QualityRule(name: "Selects correct answer B", type: .matchesRegex, weight: 3, params: ["(?i)(answer|ans)[：:\\s]*B"]),
-                QualityRule(name: "Mentions concurrency", type: .containsAny, weight: 1, params: ["concurrent", "parallel", "simultaneously", "at the same time"]),
-                QualityRule(name: "Has reasoning process", type: .lengthRange, weight: 1, params: ["50", "5000"]),
+                QualityRule(name: "Correct answer (B or 600)", type: .matchesRegex, weight: 3,
+                            params: ["(?i)(answer|ans|选)[：:\\s]*B|(?<![0-9])600\\s*(?:ms|millisecond)"]),
+                QualityRule(name: "No wrong option selected", type: .notContains, weight: 2,
+                            params: ["Answer: A", "Answer: C", "Answer: D", "answer: A", "answer: C", "answer: D"]),
+                QualityRule(name: "Has reasoning process", type: .lengthRange, weight: 1, params: ["30", "5000"]),
             ]
         ),
 

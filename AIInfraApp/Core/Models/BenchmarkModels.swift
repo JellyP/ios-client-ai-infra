@@ -139,7 +139,9 @@ enum QualityScorer {
     }
 
     private static func evaluateRule(_ rule: QualityRule, response: String) -> RuleResult {
-        let lower = response.lowercased()
+        // 清理 LaTeX/Markdown 格式后再匹配
+        let cleaned = stripFormatting(response)
+        let lower = cleaned.lowercased()
 
         switch rule.type {
         case .containsAny:
@@ -180,8 +182,8 @@ enum QualityScorer {
                   let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]) else {
                 return RuleResult(ruleName: rule.name, passed: false, detail: "正则表达式无效", weight: rule.weight)
             }
-            let range = NSRange(response.startIndex..., in: response)
-            if regex.firstMatch(in: response, range: range) != nil {
+            let range = NSRange(cleaned.startIndex..., in: cleaned)
+            if regex.firstMatch(in: cleaned, range: range) != nil {
                 return RuleResult(ruleName: rule.name, passed: true, detail: "匹配格式规则", weight: rule.weight)
             }
             return RuleResult(ruleName: rule.name, passed: false, detail: "未匹配指定格式", weight: rule.weight)
@@ -210,6 +212,23 @@ enum QualityScorer {
             }
             return RuleResult(ruleName: rule.name, passed: false, detail: "未包含代码内容", weight: rule.weight)
         }
+    }
+
+    /// 去除 LaTeX 和 Markdown 格式标记，保留纯文本用于评分匹配
+    private static func stripFormatting(_ text: String) -> String {
+        var s = text
+        // 去除 LaTeX: $...$, $$...$$, \text{...}, \mathrm{...}
+        s = s.replacingOccurrences(of: "\\$\\$([^$]+)\\$\\$", with: "$1", options: .regularExpression)
+        s = s.replacingOccurrences(of: "\\$([^$]+)\\$", with: "$1", options: .regularExpression)
+        s = s.replacingOccurrences(of: "\\\\text\\{([^}]*)\\}", with: "$1", options: .regularExpression)
+        s = s.replacingOccurrences(of: "\\\\mathrm\\{([^}]*)\\}", with: "$1", options: .regularExpression)
+        s = s.replacingOccurrences(of: "\\\\times", with: "x", options: .regularExpression)
+        s = s.replacingOccurrences(of: "\\\\", with: "", options: .regularExpression)
+        // 去除 Markdown 加粗/斜体: **..**, *..*, `..`
+        s = s.replacingOccurrences(of: "\\*\\*([^*]+)\\*\\*", with: "$1", options: .regularExpression)
+        s = s.replacingOccurrences(of: "\\*([^*]+)\\*", with: "$1", options: .regularExpression)
+        s = s.replacingOccurrences(of: "`([^`]+)`", with: "$1", options: .regularExpression)
+        return s
     }
 
     /// 从文本中提取可能的 JSON 字符串（处理 markdown 代码块包裹的情况）
@@ -431,12 +450,14 @@ extension BenchmarkTestCase {
             C. 2400ms
             D. 800ms
 
-            请先推理，最后一行输出你的答案字母（如：答案：B）。
+            请先简要推理，然后给出答案。
             """,
             qualityRules: [
-                QualityRule(name: "选择正确答案 B", type: .matchesRegex, weight: 3, params: ["(?i)(答案|answer)[：:\\s]*B"]),
-                QualityRule(name: "提及并发/并行", type: .containsAny, weight: 1, params: ["并发", "并行", "concurrent", "parallel", "同时"]),
-                QualityRule(name: "有推理过程", type: .lengthRange, weight: 1, params: ["50", "5000"]),
+                QualityRule(name: "正确答案（选 B 或回答 600）", type: .matchesRegex, weight: 3,
+                            params: ["(?i)(答案|answer|选)[：:\\s]*B|(?<![0-9])600\\s*(?:ms|毫秒|millisecond)"]),
+                QualityRule(name: "不选错误选项", type: .notContains, weight: 2,
+                            params: ["答案：A", "答案：C", "答案：D", "Answer: A", "Answer: C", "Answer: D"]),
+                QualityRule(name: "有推理过程", type: .lengthRange, weight: 1, params: ["30", "5000"]),
             ]
         ),
 
