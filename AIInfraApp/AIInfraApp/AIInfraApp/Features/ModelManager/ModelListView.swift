@@ -5,6 +5,7 @@ import SwiftUI
 /// 展示所有可用端侧模型的详细信息，并提供下载入口
 struct ModelListView: View {
     @EnvironmentObject private var modelManager: ModelManager
+    @EnvironmentObject private var lang: LanguageManager
 
     var body: some View {
         NavigationStack {
@@ -13,25 +14,32 @@ struct ModelListView: View {
                 Section {
                     deviceInfoCard
                 } header: {
-                    Text("设备信息")
+                    Text(L10n.deviceInfo)
                 }
 
                 // 快捷入口
-                Section("管理") {
+                Section(L10n.manage) {
                     NavigationLink {
                         ModelDownloadStoreView()
                     } label: {
                         Label {
                             VStack(alignment: .leading) {
-                                Text("模型商店")
+                                Text(L10n.modelStore)
                                     .font(.body)
-                                Text("浏览和下载 GGUF 模型到手机")
+                                Text(L10n.modelStoreDesc)
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
                         } icon: {
                             Image(systemName: "arrow.down.app.fill")
                                 .foregroundStyle(.blue)
+                        }
+                    }
+
+                    // 语言切换
+                    Picker(L10n.languageSetting, selection: $lang.currentLanguage) {
+                        ForEach(AppLanguage.allCases, id: \.self) { language in
+                            Text(language.displayName).tag(language)
                         }
                     }
                 }
@@ -46,12 +54,12 @@ struct ModelListView: View {
                         }
                     }
                 } header: {
-                    Label("端侧模型", systemImage: "iphone")
+                    Label(L10n.onDeviceHeader, systemImage: "iphone")
                 } footer: {
-                    Text("端侧模型运行在设备本地，无需网络。需要先到「模型商店」下载 GGUF 模型文件。")
+                    Text(L10n.onDeviceFooter)
                 }
             }
-            .navigationTitle("模型库")
+            .navigationTitle(L10n.modelLibrary)
             .navigationBarTitleDisplayMode(.inline)
         }
     }
@@ -61,7 +69,7 @@ struct ModelListView: View {
     private var deviceInfoCard: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Label("总内存", systemImage: "memorychip")
+                Label(L10n.totalMemory, systemImage: "memorychip")
                     .font(.subheadline)
                 Spacer()
                 Text(MemoryUtils.formatBytes(MemoryUtils.totalMemory))
@@ -69,7 +77,7 @@ struct ModelListView: View {
             }
 
             HStack {
-                Label("已使用", systemImage: "chart.bar.fill")
+                Label(L10n.usedMemory, systemImage: "chart.bar.fill")
                     .font(.subheadline)
                 Spacer()
                 Text(MemoryUtils.formatBytes(MemoryUtils.currentMemoryUsage))
@@ -77,7 +85,7 @@ struct ModelListView: View {
             }
 
             HStack {
-                Label("可运行模型", systemImage: "cpu")
+                Label(L10n.runnableModels, systemImage: "cpu")
                     .font(.subheadline)
                 Spacer()
                 Text(estimateRunnableModels())
@@ -96,7 +104,7 @@ struct ModelListView: View {
         } else if availableMB >= 4000 {
             return "≤1B (Q4)"
         } else {
-            return "受限"
+            return L10n.limited
         }
     }
 
@@ -111,7 +119,7 @@ struct ModelListView: View {
                 // 下载状态
                 if let model = GGUFModelCatalog.allModels.first(where: { $0.id == provider.id }) {
                     if ModelDownloadManager.shared.isModelDownloaded(model) {
-                        Text("已下载")
+                        Text(L10n.downloaded)
                             .font(.caption2)
                             .foregroundStyle(.green)
                             .padding(.horizontal, 5)
@@ -119,7 +127,7 @@ struct ModelListView: View {
                             .background(Color.green.opacity(0.12))
                             .clipShape(Capsule())
                     } else {
-                        Text("未下载")
+                        Text(L10n.notDownloaded)
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                             .padding(.horizontal, 5)
@@ -140,7 +148,7 @@ struct ModelListView: View {
                     .clipShape(Capsule())
             }
 
-            Text(provider.description)
+            Text(lang.currentLanguage == .english ? provider.descriptionEN : provider.description)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
@@ -166,30 +174,31 @@ struct ModelListView: View {
 // MARK: - 模型详情页
 
 struct ModelDetailView: View {
+    @EnvironmentObject private var lang: LanguageManager
     let provider: any AIModelProvider
 
     var body: some View {
         List {
-            Section("基本信息") {
-                detailRow(title: "名称", value: provider.displayName)
-                detailRow(title: "架构", value: provider.architectureType.rawValue)
-                detailRow(title: "模型家族", value: provider.modelInfo.family)
-                detailRow(title: "参数量", value: provider.modelInfo.parameterCount)
-                detailRow(title: "量化", value: provider.modelInfo.quantization)
-                detailRow(title: "上下文长度", value: "\(provider.modelInfo.contextLength) tokens")
+            Section(L10n.basicInfo) {
+                detailRow(title: L10n.name, value: provider.displayName)
+                detailRow(title: L10n.architecture, value: provider.architectureType.rawValue)
+                detailRow(title: L10n.modelFamily, value: provider.modelInfo.family)
+                detailRow(title: L10n.paramCount, value: provider.modelInfo.parameterCount)
+                detailRow(title: L10n.quantization, value: provider.modelInfo.quantization)
+                detailRow(title: L10n.contextLength, value: "\(provider.modelInfo.contextLength) tokens")
             }
 
-            Section("存储信息") {
-                detailRow(title: "模型大小", value: MemoryUtils.formatBytes(provider.modelInfo.fileSize))
-                detailRow(title: "量化方案", value: provider.modelInfo.quantization)
+            Section(L10n.storageInfo) {
+                detailRow(title: L10n.modelSize, value: MemoryUtils.formatBytes(provider.modelInfo.fileSize))
+                detailRow(title: L10n.quantization, value: provider.modelInfo.quantization)
             }
 
-            Section("支持语言") {
+            Section(L10n.languages) {
                 Text(provider.modelInfo.supportedLanguages.joined(separator: ", "))
                     .font(.body)
             }
 
-            Section("简介") {
+            Section(L10n.summary) {
                 Text(provider.modelInfo.summary)
                     .font(.body)
             }

@@ -6,6 +6,7 @@ import Textual
 /// 主聊天界面，支持切换模型进行对话，保存历史记录
 struct ChatView: View {
     @EnvironmentObject private var modelManager: ModelManager
+    @EnvironmentObject private var lang: LanguageManager
     @StateObject private var historyStore = ChatHistoryStore.shared
 
     @State private var inputText = ""
@@ -40,7 +41,7 @@ struct ChatView: View {
                 // 输入区域
                 inputArea
             }
-            .navigationTitle("AI 对话")
+            .navigationTitle(L10n.chatTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -104,7 +105,7 @@ struct ChatView: View {
               let modelId = modelManager.selectedModelId else { return }
 
         let title = messages.first(where: { $0.role == .user })?.content.prefix(30)
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? "对话"
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? L10n.conversation
 
         var session = ChatSession(id: currentSessionId, title: String(title), modelId: modelId)
         session.messages = messages
@@ -123,7 +124,7 @@ struct ChatView: View {
                     .fill(providerTypeColor)
                     .frame(width: 8, height: 8)
 
-                Text(modelManager.selectedProvider?.displayName ?? "选择模型")
+                Text(modelManager.selectedProvider?.displayName ?? L10n.selectModel)
                     .font(.subheadline.weight(.medium))
 
                 Spacer()
@@ -196,10 +197,10 @@ struct ChatView: View {
             Image(systemName: "brain.head.profile")
                 .font(.system(size: 48))
                 .foregroundStyle(.secondary)
-            Text("选择模型，开始对话")
+            Text(L10n.selectModelStartChat)
                 .font(.headline)
                 .foregroundStyle(.secondary)
-            Text("你可以对比远程模型和端侧模型的回答质量与速度")
+            Text(L10n.compareHint)
                 .font(.caption)
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)
@@ -227,7 +228,7 @@ struct ChatView: View {
                     HStack(spacing: 4) {
                         ProgressView()
                             .scaleEffect(0.7)
-                        Text("生成中...")
+                        Text(L10n.generating)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -246,23 +247,23 @@ struct ChatView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 16) {
                 metricItem(
-                    title: "首字延迟",
+                    title: L10n.ttft,
                     value: String(format: "%.0fms", metrics.timeToFirstToken * 1000)
                 )
                 metricItem(
-                    title: "生成速度",
+                    title: L10n.speed,
                     value: String(format: "%.1f t/s", metrics.decodeTokensPerSecond)
                 )
                 metricItem(
-                    title: "总耗时",
+                    title: L10n.totalTime,
                     value: String(format: "%.1fs", metrics.totalTime)
                 )
                 metricItem(
-                    title: "生成Token",
+                    title: L10n.genTokens,
                     value: "\(metrics.totalGeneratedTokens)"
                 )
                 metricItem(
-                    title: "内存",
+                    title: L10n.memory,
                     value: MemoryUtils.formatBytes(metrics.peakMemoryUsage)
                 )
             }
@@ -286,7 +287,7 @@ struct ChatView: View {
 
     private var inputArea: some View {
         HStack(alignment: .bottom, spacing: 8) {
-            TextField("输入消息...", text: $inputText, axis: .vertical)
+            TextField(L10n.inputPlaceholder, text: $inputText, axis: .vertical)
                 .focused($isInputFocused)
                 .lineLimit(1...5)
                 .textFieldStyle(.plain)
@@ -316,17 +317,17 @@ struct ChatView: View {
     private var modelPickerSheet: some View {
         NavigationStack {
             List {
-                Section("端侧模型") {
+                Section(L10n.onDeviceModels) {
                     ForEach(modelManager.providers, id: \.id) { provider in
                         modelRow(provider)
                     }
                 }
             }
-            .navigationTitle("选择模型")
+            .navigationTitle(L10n.selectModel)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("完成") {
+                    Button(L10n.done) {
                         showModelPicker = false
                     }
                 }
@@ -357,7 +358,7 @@ struct ChatView: View {
                         downloadBadge(for: provider)
                     }
 
-                    Text(provider.description)
+                    Text(lang.currentLanguage == .english ? provider.descriptionEN : provider.description)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
@@ -389,7 +390,7 @@ struct ChatView: View {
     private func downloadBadge(for provider: any AIModelProvider) -> some View {
         if let model = GGUFModelCatalog.allModels.first(where: { $0.id == provider.id }) {
             if ModelDownloadManager.shared.isModelDownloaded(model) {
-                Text("已下载")
+                Text(L10n.downloaded)
                     .font(.caption2)
                     .foregroundStyle(.green)
                     .padding(.horizontal, 5)
@@ -397,7 +398,7 @@ struct ChatView: View {
                     .background(Color.green.opacity(0.12))
                     .clipShape(Capsule())
             } else {
-                Text("未下载")
+                Text(L10n.notDownloaded)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 5)
@@ -442,7 +443,7 @@ struct ChatView: View {
                     }
                 }
             } catch {
-                currentResponse += "\n[错误: \(error.localizedDescription)]"
+                currentResponse += "\n[\(L10n.error): \(error.localizedDescription)]"
             }
 
             // 将完成的回复添加到消息列表
@@ -464,7 +465,7 @@ struct ChatView: View {
         isGenerating = false
 
         if !currentResponse.isEmpty {
-            let assistantMessage = ChatMessage(role: .assistant, content: currentResponse + " [已取消]")
+            let assistantMessage = ChatMessage(role: .assistant, content: currentResponse + " [\(L10n.cancelled)]")
             messages.append(assistantMessage)
             currentResponse = ""
         }
@@ -485,9 +486,9 @@ struct ChatHistorySheet: View {
             Group {
                 if historyStore.sessions.isEmpty {
                     ContentUnavailableView(
-                        "暂无历史对话",
+                        L10n.noHistory,
                         systemImage: "clock",
-                        description: Text("对话结束后会自动保存")
+                        description: Text(L10n.autoSaveHint)
                     )
                 } else {
                     List {
@@ -504,11 +505,11 @@ struct ChatHistorySheet: View {
                     }
                 }
             }
-            .navigationTitle("历史对话")
+            .navigationTitle(L10n.chatHistory)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("关闭") { dismiss() }
+                    Button(L10n.close) { dismiss() }
                 }
             }
         }
@@ -534,7 +535,7 @@ struct ChatHistorySheet: View {
                     .padding(.vertical, 1)
                     .background(Color.blue.opacity(0.1))
                     .clipShape(Capsule())
-                Text("\(session.messages.count) 条消息")
+                Text("\(session.messages.count)\(L10n.messages)")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
@@ -592,4 +593,5 @@ struct MessageBubbleView: View {
 #Preview {
     ChatView()
         .environmentObject(ModelManager())
+        .environmentObject(LanguageManager.shared)
 }

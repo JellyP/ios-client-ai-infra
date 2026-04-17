@@ -9,6 +9,7 @@ final class MockOnDeviceProvider: AIModelProvider, @unchecked Sendable {
     let id: String
     let displayName: String
     let description: String
+    let descriptionEN: String
     let providerType: AIModelProviderType = .onDevice
     let architectureType: ModelArchitectureType
     let modelInfo: ModelInfo
@@ -28,6 +29,7 @@ final class MockOnDeviceProvider: AIModelProvider, @unchecked Sendable {
         self.id = id
         self.displayName = displayName
         self.description = description
+        self.descriptionEN = description
         self.architectureType = architectureType
         self.modelInfo = ModelInfo(
             family: family,

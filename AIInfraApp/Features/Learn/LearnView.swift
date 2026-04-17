@@ -5,6 +5,11 @@ import Textual
 
 /// 科普学习入口，引导开发者循序渐进地了解端侧 AI
 struct LearnView: View {
+    @EnvironmentObject private var lang: LanguageManager
+
+    private var modules: [LearningModule] {
+        lang.currentLanguage == .english ? learningModulesEN : learningModules
+    }
 
     var body: some View {
         NavigationStack {
@@ -12,7 +17,7 @@ struct LearnView: View {
                 VStack(spacing: 16) {
                     headerSection
 
-                    ForEach(learningModules) { module in
+                    ForEach(modules) { module in
                         NavigationLink {
                             LearnDetailView(module: module)
                         } label: {
@@ -25,7 +30,7 @@ struct LearnView: View {
                 }
                 .padding()
             }
-            .navigationTitle("学习中心")
+            .navigationTitle(L10n.learnTitle)
             .navigationBarTitleDisplayMode(.large)
         }
     }
@@ -34,9 +39,9 @@ struct LearnView: View {
 
     private var headerSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("从零开始理解端侧 AI")
+            Text(L10n.learnHeader)
                 .font(.title2.weight(.bold))
-            Text("专为 iOS 开发者设计的 AI 学习路线，用你熟悉的概念来理解大模型。")
+            Text(L10n.learnSubheader)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
@@ -59,7 +64,7 @@ struct LearnView: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
-                    Text("第\(module.order)章")
+                    Text("\(L10n.chapter)\(module.order)\(L10n.chapterSuffix)")
                         .font(.caption2.weight(.medium))
                         .foregroundStyle(module.color)
                         .padding(.horizontal, 6)
@@ -98,16 +103,16 @@ struct LearnView: View {
 
     private var quickReferenceSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("速查参考")
+            Text(L10n.quickReference)
                 .font(.headline)
                 .padding(.top, 8)
 
             VStack(spacing: 8) {
-                referenceRow(icon: "memorychip", title: "模型大小估算", detail: "1B 参数 ≈ 2GB (FP16) ≈ 0.5GB (Q4)")
-                referenceRow(icon: "iphone", title: "iPhone 建议", detail: "8GB RAM → 最大运行 3B (Q4) 模型")
-                referenceRow(icon: "speedometer", title: "速度参考", detail: "端侧 A17 Pro: 10-25 t/s (1-3B Q4)")
-                referenceRow(icon: "lock.shield", title: "隐私优势", detail: "端侧推理：数据不出设备，零网络依赖")
-                referenceRow(icon: "battery.75percent", title: "功耗参考", detail: "1B 模型连续推理约 3-5W，3B 约 6-8W")
+                referenceRow(icon: "memorychip", title: L10n.modelSizeEst, detail: L10n.modelSizeDetail)
+                referenceRow(icon: "iphone", title: L10n.iphoneAdvice, detail: L10n.iphoneAdviceDetail)
+                referenceRow(icon: "speedometer", title: L10n.speedRef, detail: L10n.speedRefDetail)
+                referenceRow(icon: "lock.shield", title: L10n.privacyAdv, detail: L10n.privacyAdvDetail)
+                referenceRow(icon: "battery.75percent", title: L10n.powerRef, detail: L10n.powerRefDetail)
             }
         }
     }
@@ -176,7 +181,7 @@ struct LearnDetailView: View {
             VStack(alignment: .leading, spacing: 16) {
                 // 头部
                 HStack {
-                    Text("第\(module.order)章")
+                    Text("\(L10n.chapter)\(module.order)\(L10n.chapterSuffix)")
                         .font(.caption.weight(.bold))
                         .foregroundStyle(module.color)
                     Text(module.difficulty.label)

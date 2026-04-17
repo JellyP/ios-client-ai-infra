@@ -6,8 +6,9 @@ import Textual
 /// 模型性能对比测评界面
 struct BenchmarkView: View {
     @EnvironmentObject private var modelManager: ModelManager
+    @EnvironmentObject private var lang: LanguageManager
     @State private var selectedTestCases: Set<UUID> = []
-    @State private var selectedModels: [String] = []  // 有序，按选择顺序执行
+    @State private var selectedModels: [String] = []
     @State private var results: [BenchmarkResult] = []
     @State private var isRunning = false
     @State private var currentModelName = ""
@@ -16,7 +17,9 @@ struct BenchmarkView: View {
     @State private var modelTotal = 0
     @State private var progress: Double = 0
 
-    private let testCases = BenchmarkTestCase.standardTestSuite
+    private var testCases: [BenchmarkTestCase] {
+        lang.currentLanguage == .english ? BenchmarkTestCase.standardTestSuiteEN : BenchmarkTestCase.standardTestSuite
+    }
 
     var body: some View {
         NavigationStack {
@@ -38,7 +41,7 @@ struct BenchmarkView: View {
                     resultSection
                 }
             }
-            .navigationTitle("模型测评")
+            .navigationTitle(L10n.benchmarkTitle)
             .navigationBarTitleDisplayMode(.inline)
         }
     }
@@ -49,20 +52,20 @@ struct BenchmarkView: View {
         Section {
             HStack {
                 VStack(alignment: .leading) {
-                    Text("设备信息")
+                    Text(L10n.deviceInfo)
                         .font(.subheadline.weight(.medium))
-                    Text("内存: \(MemoryUtils.formatBytes(MemoryUtils.totalMemory))")
+                    Text("\(L10n.memoryLabel): \(MemoryUtils.formatBytes(MemoryUtils.totalMemory))")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Text("已用: \(MemoryUtils.formatBytes(MemoryUtils.currentMemoryUsage))")
+                    Text("\(L10n.usedLabel): \(MemoryUtils.formatBytes(MemoryUtils.currentMemoryUsage))")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
                 VStack(alignment: .trailing) {
-                    Text("已选模型: \(selectedModels.count)")
+                    Text("\(L10n.selectedModels): \(selectedModels.count)")
                         .font(.caption)
-                    Text("已选用例: \(selectedTestCases.count)")
+                    Text("\(L10n.selectedCases): \(selectedTestCases.count)")
                         .font(.caption)
                 }
             }
@@ -103,17 +106,13 @@ struct BenchmarkView: View {
 
                                 if let model = GGUFModelCatalog.allModels.first(where: { $0.id == provider.id }) {
                                     if ModelDownloadManager.shared.isModelDownloaded(model) {
-                                        Text("已下载")
-                                            .font(.caption2)
-                                            .foregroundStyle(.green)
+                                        Text(L10n.downloaded)
                                             .padding(.horizontal, 4)
                                             .padding(.vertical, 1)
                                             .background(Color.green.opacity(0.12))
                                             .clipShape(Capsule())
                                     } else {
-                                        Text("未下载")
-                                            .font(.caption2)
-                                            .foregroundStyle(.secondary)
+                                        Text(L10n.notDownloaded)
                                             .padding(.horizontal, 4)
                                             .padding(.vertical, 1)
                                             .background(Color(.systemGray5))
@@ -144,9 +143,9 @@ struct BenchmarkView: View {
                 .buttonStyle(.plain)
             }
         } header: {
-            Text("选择对比模型（按选择顺序逐个测试）")
+            Text(L10n.selectModelsHeader)
         } footer: {
-            Text("每个模型测完后会自动卸载再加载下一个，避免内存溢出。")
+            Text(L10n.selectModelsFooter)
                 .font(.caption2)
         }
     }
@@ -164,12 +163,12 @@ struct BenchmarkView: View {
     private var testCaseSelectionSection: some View {
         Section {
             HStack {
-                Button("全选") {
+                Button(L10n.selectAll) {
                     selectedTestCases = Set(testCases.map(\.id))
                 }
                 .font(.caption)
                 .buttonStyle(.borderless)
-                Button("取消全选") {
+                Button(L10n.deselectAll) {
                     selectedTestCases.removeAll()
                 }
                 .font(.caption)
@@ -201,7 +200,7 @@ struct BenchmarkView: View {
                 .buttonStyle(.plain)
             }
         } header: {
-            Text("选择测试用例")
+            Text(L10n.selectTestCases)
         }
     }
 
@@ -217,10 +216,10 @@ struct BenchmarkView: View {
                     if isRunning {
                         ProgressView()
                             .padding(.trailing, 4)
-                        Text("测试中...")
+                        Text(L10n.testing)
                     } else {
                         Image(systemName: "play.fill")
-                        Text("开始测评")
+                        Text(L10n.startBenchmark)
                     }
                     Spacer()
                 }
@@ -240,13 +239,13 @@ struct BenchmarkView: View {
                 Section {
                     compareOverview
                 } header: {
-                    Text("综合对比")
+                    Text(L10n.overallComparison)
                 }
 
                 Section {
                     perTestCaseComparison
                 } header: {
-                    Text("逐项对比")
+                    Text(L10n.perItemComparison)
                 }
             }
 
@@ -263,7 +262,7 @@ struct BenchmarkView: View {
                     }
                 }
             } header: {
-                Text("详细结果")
+                Text(L10n.detailedResults)
             }
         }
     }
@@ -347,7 +346,7 @@ struct BenchmarkView: View {
                         isBest: mem == bestMem && models.count > 1
                     )
                     compareCell(
-                        text: quality > 0 ? String(format: "%.0f分", quality) : "-",
+                        text: quality > 0 ? String(format: "%.0f\(L10n.score)", quality) : "-",
                         isBest: quality == bestQuality && quality > 0 && models.count > 1
                     )
                 }
@@ -440,10 +439,10 @@ struct BenchmarkView: View {
             HStack(spacing: 12) {
                 let avgSpeed = results.map(\.metrics.decodeTokensPerSecond).reduce(0, +) / max(Double(results.count), 1)
                 let avgTTFT = results.map(\.metrics.timeToFirstToken).reduce(0, +) / max(Double(results.count), 1)
-                Text(String(format: "平均 %.1f t/s", avgSpeed))
+                Text(String(format: "%@ %.1f t/s", L10n.avgSpeed, avgSpeed))
                     .font(.caption2)
                     .foregroundStyle(.secondary)
-                Text(String(format: "平均首字 %.0fms", avgTTFT * 1000))
+                Text(String(format: "%@ %.0fms", L10n.avgTTFT, avgTTFT * 1000))
                     .font(.caption2)
                     .foregroundStyle(.secondary)
 
@@ -451,12 +450,12 @@ struct BenchmarkView: View {
                 let scored = results.filter { $0.qualityScore.totalScore >= 0 }
                 if !scored.isEmpty {
                     let avgScore = scored.map(\.qualityScore.totalScore).reduce(0, +) / scored.count
-                    Text("质量 \(avgScore)分")
+                    Text("\(L10n.qualityLabel) \(avgScore)\(L10n.score)")
                         .font(.caption2.weight(.medium))
                         .foregroundStyle(avgScore >= 80 ? .green : avgScore >= 40 ? .orange : .red)
                 }
 
-                Text("\(results.count) 个用例")
+                Text("\(results.count)\(L10n.cases)")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }
@@ -475,9 +474,9 @@ struct BenchmarkView: View {
 
             // 性能指标
             HStack(spacing: 16) {
-                miniMetric(label: "首字延迟", value: String(format: "%.0fms", result.metrics.timeToFirstToken * 1000))
-                miniMetric(label: "速度", value: String(format: "%.1ft/s", result.metrics.decodeTokensPerSecond))
-                miniMetric(label: "总耗时", value: String(format: "%.1fs", result.metrics.totalTime))
+                miniMetric(label: L10n.ttft, value: String(format: "%.0fms", result.metrics.timeToFirstToken * 1000))
+                miniMetric(label: L10n.speed, value: String(format: "%.1ft/s", result.metrics.decodeTokensPerSecond))
+                miniMetric(label: L10n.totalTime, value: String(format: "%.1fs", result.metrics.totalTime))
                 miniMetric(label: "Token", value: "\(result.metrics.totalGeneratedTokens)")
             }
 
@@ -496,7 +495,7 @@ struct BenchmarkView: View {
                     prompt: testCases.first(where: { $0.id == result.testCaseId })?.prompt ?? ""
                 )
             } label: {
-                Text("查看回复与 Prompt")
+                Text(L10n.viewReplyAndPrompt)
                     .font(.caption)
                     .foregroundStyle(.blue)
             }
@@ -508,7 +507,7 @@ struct BenchmarkView: View {
     @ViewBuilder
     private func qualityBadge(_ score: QualityScore) -> some View {
         if score.totalScore >= 0 {
-            Text("\(score.totalScore)分 \(score.level.rawValue)")
+            Text("\(score.totalScore)\(L10n.score) \(score.level.rawValue)")
                 .font(.caption2.weight(.medium))
                 .foregroundStyle(score.level == .pass ? .green : score.level == .partial ? .orange : .red)
                 .padding(.horizontal, 6)
@@ -582,7 +581,7 @@ struct BenchmarkView: View {
                         }
                     }
                 } catch {
-                    response = "[错误: \(error.localizedDescription)]"
+                    response = "[\(L10n.error): \(error.localizedDescription)]"
                 }
 
                 if let metrics = finalMetrics {
@@ -645,15 +644,15 @@ struct BenchmarkResultDetailView: View {
 
                 // 性能指标
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("性能指标")
+                    Text(L10n.performanceMetrics)
                         .font(.subheadline.weight(.semibold))
                     LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
-                        metricCard(label: "首字延迟", value: String(format: "%.0f ms", result.metrics.timeToFirstToken * 1000))
-                        metricCard(label: "生成速度", value: String(format: "%.1f t/s", result.metrics.decodeTokensPerSecond))
-                        metricCard(label: "总耗时", value: String(format: "%.2f s", result.metrics.totalTime))
-                        metricCard(label: "生成 Token", value: "\(result.metrics.totalGeneratedTokens)")
-                        metricCard(label: "峰值内存", value: MemoryUtils.formatBytes(result.metrics.peakMemoryUsage))
-                        metricCard(label: "输入长度", value: "\(result.metrics.inputTokenCount) 字符")
+                        metricCard(label: L10n.ttft, value: String(format: "%.0f ms", result.metrics.timeToFirstToken * 1000))
+                        metricCard(label: L10n.speed, value: String(format: "%.1f t/s", result.metrics.decodeTokensPerSecond))
+                        metricCard(label: L10n.totalTime, value: String(format: "%.2f s", result.metrics.totalTime))
+                        metricCard(label: L10n.genTokens, value: "\(result.metrics.totalGeneratedTokens)")
+                        metricCard(label: L10n.peakMemory, value: MemoryUtils.formatBytes(result.metrics.peakMemoryUsage))
+                        metricCard(label: L10n.inputLength, value: "\(result.metrics.inputTokenCount)\(L10n.chars)")
                     }
                 }
 
@@ -663,10 +662,10 @@ struct BenchmarkResultDetailView: View {
                 if result.qualityScore.totalScore >= 0 {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
-                            Text("质量评分")
+                            Text(L10n.qualityScore)
                                 .font(.subheadline.weight(.semibold))
                             Spacer()
-                            Text("\(result.qualityScore.totalScore) 分")
+                            Text("\(result.qualityScore.totalScore) \(L10n.score)")
                                 .font(.title3.weight(.bold))
                                 .foregroundStyle(result.qualityScore.level == .pass ? .green : result.qualityScore.level == .partial ? .orange : .red)
                             Text(result.qualityScore.level.rawValue)
@@ -720,7 +719,7 @@ struct BenchmarkResultDetailView: View {
 
                 // 模型回复
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("模型回复")
+                    Text(L10n.modelReply)
                         .font(.subheadline.weight(.semibold))
                     StructuredText(markdown: result.response, syntaxExtensions: [.math])
                         .textual.structuredTextStyle(.gitHub)
@@ -733,7 +732,7 @@ struct BenchmarkResultDetailView: View {
             }
             .padding()
         }
-        .navigationTitle("测评详情")
+        .navigationTitle(L10n.benchmarkDetail)
         .navigationBarTitleDisplayMode(.inline)
     }
 

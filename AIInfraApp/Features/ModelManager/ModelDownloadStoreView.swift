@@ -5,6 +5,7 @@ import SwiftUI
 /// App 内的模型下载页面，用户可以直接在这里浏览和下载模型
 struct ModelDownloadStoreView: View {
     @StateObject private var downloadManager = ModelDownloadManager.shared
+    @EnvironmentObject private var lang: LanguageManager
     @State private var selectedTag: ModelTag?
     @State private var selectedMirror: DownloadMirror = APIKeyStore.downloadMirror
 
@@ -29,7 +30,7 @@ struct ModelDownloadStoreView: View {
             // 模型列表
             modelListSection
         }
-        .navigationTitle("模型商店")
+        .navigationTitle(L10n.modelStore)
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             downloadManager.refreshDownloadedModels()
@@ -40,7 +41,7 @@ struct ModelDownloadStoreView: View {
 
     private var mirrorSection: some View {
         Section {
-            Picker("下载源", selection: $selectedMirror) {
+            Picker(L10n.downloadSource, selection: $selectedMirror) {
                 ForEach(DownloadMirror.allCases, id: \.self) { mirror in
                     VStack(alignment: .leading) {
                         Text(mirror.displayName)
@@ -56,7 +57,7 @@ struct ModelDownloadStoreView: View {
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
         } header: {
-            Text("下载源")
+            Text(L10n.downloadSource)
         }
     }
 
@@ -66,16 +67,16 @@ struct ModelDownloadStoreView: View {
         Section {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    Label("已下载模型", systemImage: "internaldrive")
+                    Label(L10n.downloadedModels, systemImage: "internaldrive")
                         .font(.subheadline.weight(.medium))
                     Spacer()
-                    Text("\(downloadManager.downloadedModels.count) 个")
+                    Text("\(downloadManager.downloadedModels.count)")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
 
                 HStack {
-                    Text("占用空间")
+                    Text(L10n.storageUsed)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Spacer()
@@ -83,7 +84,7 @@ struct ModelDownloadStoreView: View {
                         .font(.caption.monospacedDigit().weight(.medium))
                 }
 
-                Text("模型文件下载到 App 本地存储，卸载 App 会同时删除。")
+                Text(L10n.storageNote)
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }
@@ -93,7 +94,7 @@ struct ModelDownloadStoreView: View {
     // MARK: - 推荐
 
     private var recommendedSection: some View {
-        Section("推荐首次下载") {
+        Section(L10n.recommendedFirst) {
             ForEach(GGUFModelCatalog.recommendedForFirstTime) { model in
                 modelRow(model, highlight: true)
             }
@@ -106,9 +107,9 @@ struct ModelDownloadStoreView: View {
         Section {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
-                    tagButton(nil, label: "全部")
+                    tagButton(nil, label: L10n.selectAll)
                     ForEach(ModelTag.allCases, id: \.self) { tag in
-                        tagButton(tag, label: tag.rawValue)
+                        tagButton(tag, label: tag.localizedName)
                     }
                 }
             }
@@ -134,7 +135,7 @@ struct ModelDownloadStoreView: View {
     // MARK: - 模型列表
 
     private var modelListSection: some View {
-        Section("所有模型（按大小排序）") {
+        Section(L10n.allModelsBySize) {
             ForEach(filteredModels) { model in
                 modelRow(model, highlight: false)
             }
@@ -182,7 +183,7 @@ struct ModelDownloadStoreView: View {
             }
 
             // 第二行：描述
-            Text(model.description)
+            Text(model.localizedDescription)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
@@ -190,7 +191,7 @@ struct ModelDownloadStoreView: View {
             // 第三行：标签
             HStack(spacing: 4) {
                 ForEach(model.tags, id: \.self) { tag in
-                    Text(tag.rawValue)
+                    Text(tag.localizedName)
                         .font(.caption2)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
@@ -237,11 +238,11 @@ struct ModelDownloadStoreView: View {
             VStack(spacing: 4) {
                 ProgressView(value: progress)
                 HStack {
-                    Text("下载中 \(Int(progress * 100))%")
+                    Text("\(L10n.downloading) \(Int(progress * 100))%")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                     Spacer()
-                    Button("暂停") {
+                    Button(L10n.pauseBtn) {
                         downloadManager.pauseDownload(model.id)
                     }
                     .font(.caption2)
@@ -250,15 +251,15 @@ struct ModelDownloadStoreView: View {
 
         case .paused:
             HStack {
-                Text("已暂停")
+                Text(L10n.paused)
                     .font(.caption)
                     .foregroundStyle(.orange)
                 Spacer()
-                Button("继续") {
+                Button(L10n.resumeBtn) {
                     downloadManager.resumeDownload(model.id)
                 }
                 .font(.caption)
-                Button("取消") {
+                Button(L10n.cancelBtn) {
                     downloadManager.cancelDownload(model.id)
                 }
                 .font(.caption)
@@ -267,26 +268,26 @@ struct ModelDownloadStoreView: View {
 
         case .completed:
             HStack {
-                Label("已下载", systemImage: "checkmark.circle.fill")
+                Label(L10n.downloaded, systemImage: "checkmark.circle.fill")
                     .font(.caption)
                     .foregroundStyle(.green)
                 Spacer()
                 Button(role: .destructive) {
                     downloadManager.deleteModel(model)
                 } label: {
-                    Text("删除")
+                    Text(L10n.deleteBtn)
                         .font(.caption)
                 }
             }
 
         case .failed(let error):
             HStack {
-                Text("下载失败: \(error)")
+                Text("\(L10n.downloadFailed): \(error)")
                     .font(.caption2)
                     .foregroundStyle(.red)
                     .lineLimit(1)
                 Spacer()
-                Button("重试") {
+                Button(L10n.retryBtn) {
                     downloadManager.downloadModel(model)
                 }
                 .font(.caption)
@@ -299,7 +300,7 @@ struct ModelDownloadStoreView: View {
             } label: {
                 HStack {
                     Spacer()
-                    Label("下载 (\(model.formattedSize))", systemImage: "arrow.down.circle.fill")
+                    Label(L10n.downloadBtn(model.formattedSize), systemImage: "arrow.down.circle.fill")
                         .font(.subheadline.weight(.medium))
                     Spacer()
                 }

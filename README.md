@@ -1,84 +1,115 @@
-# iOS Client AI Infra
+# iOS On-Device AI Infra
 
-> 探索基于 iOS 端的 AI Infra 能力，专注端模型开发，探索端模型开发过程的能力和边界。
+**[中文版](README_zh.md)**
 
-## 项目目标
+An educational iOS application for learning and experimenting with on-device large language model (LLM) inference. Built with SwiftUI and llama.cpp, this project helps iOS developers understand, deploy, and benchmark on-device AI models without requiring prior AI/ML experience.
 
-本项目面向**没有大模型基础的客户端开发者**，通过循序渐进的方式：
+## Features
 
-1. **科普端侧 AI 基础概念** — 从最简单的概念开始，逐步深入
-2. **对比外部模型 vs 端侧模型** — 理解两种模式的差异和适用场景
-3. **探索纯文本模型 vs MoE 模型** — 了解不同模型架构的特点
-4. **提供可运行的 iOS Demo** — 方便对比不同模型的效果
+- **On-Device LLM Chat** -- Interactive chat with models running entirely on iPhone. Supports Qwen, Llama, Gemma 4, Phi, and SmolLM families.
+- **Model Download Store** -- Browse, download, and manage GGUF model files directly in the app. Includes China mirror support (hf-mirror.com) for users in mainland China.
+- **Performance Benchmarking** -- Run standardized test suites across multiple models with automated quality scoring. Compare speed, latency, memory usage, and output quality side by side.
+- **Learning Center** -- 9-chapter interactive guide covering Transformer architecture, quantization, sampling strategies, llama.cpp integration, performance optimization, and more. All content rendered as Markdown with LaTeX math formula support.
+- **Markdown Rendering** -- Model responses and learning content rendered with full Markdown support including code syntax highlighting, tables, and LaTeX math via the Textual library.
+- **Chat History** -- Conversations are automatically saved and can be resumed. Useful for comparing how different models respond to the same prompts.
+- **Bilingual Interface** -- Full Chinese and English support with in-app language switching.
 
-## 项目架构
+## Supported Models
+
+| Model | Parameters | Quantization | File Size | Strengths |
+|-------|-----------|-------------|-----------|-----------|
+| Qwen2.5 0.5B | 0.5B | Q4_K_M | ~400 MB | Ultra-lightweight, decent Chinese |
+| Qwen2.5 1.5B | 1.5B | Q4_K_M | ~1 GB | Best Chinese at this size |
+| Qwen2.5 3B | 3B | Q4_K_M | ~2 GB | Strong Chinese comprehension |
+| Llama 3.2 1B | 1B | Q4_K_M | ~750 MB | Good English, lightweight |
+| Llama 3.2 3B | 3B | Q4_K_M | ~2 GB | Balanced general ability |
+| Gemma 2 2B | 2B | Q4_K_M | ~1.6 GB | High training data quality |
+| Gemma 4 E2B | 2.3B | Q4_K_M | ~3.1 GB | Built-in chain-of-thought reasoning |
+| Phi-3.5 Mini | 3.8B | Q4_K_M | ~2.3 GB | Strong reasoning and code |
+| SmolLM2 360M | 360M | Q8_0 | ~386 MB | Runs on any iPhone |
+
+## Requirements
+
+- **iOS 18.0+**
+- **Xcode 16.0+** (with Swift 5.9+)
+- **Recommended device**: iPhone 15 Pro or newer (8GB RAM, A17 Pro chip)
+- Minimum for lightweight models (0.5-1B): iPhone 13 or newer
+
+## Getting Started
+
+1. **Clone the repository**
+
+   ```bash
+   git clone https://github.com/user/ios-client-ai-infra.git
+   cd ios-client-ai-infra
+   ```
+
+2. **Open the Xcode project**
+
+   ```
+   open AIInfraApp/AIInfraApp/AIInfraApp.xcodeproj
+   ```
+
+3. **Build and run** on a physical device (recommended) or simulator
+
+4. **Download a model** -- Go to the "Models" tab, enter the Model Store, and download a model. Qwen2.5 0.5B is recommended for first-time users.
+
+5. **Start chatting** -- Switch to the "Chat" tab, select your downloaded model, and start a conversation.
+
+## Architecture
 
 ```
-ios-client-ai-infra/
-├── docs/                          # 知识科普文档（循序渐进）
-│   ├── 01-ai-basics.md            # AI 基础：什么是大模型
-│   ├── 02-model-categories.md     # 模型分类：外部模型 vs 端侧模型
-│   ├── 03-text-models.md          # 纯文本模型详解
-│   ├── 04-moe-models.md           # MoE 模型详解
-│   └── 05-on-device-deployment.md # 端侧部署实践指南
-├── AIInfraApp/                    # iOS Demo 工程
-│   ├── AIInfraApp.xcodeproj/      # Xcode 工程文件
-│   ├── Core/                      # 核心抽象层
-│   │   ├── Protocols/             # 协议定义
-│   │   ├── Models/                # 数据模型
-│   │   └── Utils/                 # 工具类
-│   ├── Features/                  # 功能模块
-│   │   ├── Chat/                  # 聊天交互界面
-│   │   ├── Benchmark/             # 模型性能对比
-│   │   └── ModelManager/          # 模型管理
-│   ├── Providers/                 # 模型提供者（可插拔）
-│   │   ├── RemoteProvider/        # 外部 API 模型（OpenAI、Claude 等）
-│   │   └── OnDeviceProvider/      # 端侧模型（CoreML、llama.cpp 等）
-│   └── Resources/                 # 资源文件
-├── scripts/                       # 辅助脚本
-│   └── setup.sh                   # 环境初始化脚本
-├── .codebuddy/                    # Agent 工作流配置
-│   └── agent-workflow.md          # Agentic Engineering 工作流定义
-└── README.md                      # 本文件
+AIInfraApp/
+├── Core/
+│   ├── Protocols/
+│   │   └── AIModelProvider.swift       # Unified provider protocol
+│   ├── Models/
+│   │   ├── ChatModels.swift            # Chat messages, sessions, configs
+│   │   └── BenchmarkModels.swift       # Test cases, quality scoring rules
+│   └── Utils/
+│       ├── LanguageManager.swift       # In-app language switching
+│       ├── L10n.swift                  # Localized UI strings
+│       ├── ChatHistoryStore.swift      # JSON-based chat persistence
+│       ├── APIKeyStore.swift           # Download mirror settings
+│       └── DeviceUtils.swift           # Memory, thermal monitoring
+├── Features/
+│   ├── Chat/ChatView.swift             # Chat interface with Markdown
+│   ├── Benchmark/BenchmarkView.swift   # Benchmark with quality scoring
+│   ├── ModelManager/                   # Model list, download store
+│   └── Learn/                          # 9-chapter learning center
+├── Providers/
+│   └── OnDeviceProvider/
+│       ├── LlamaEngine.swift           # llama.cpp Swift bridge
+│       ├── LlamaOnDeviceProvider.swift # On-device provider implementation
+│       ├── GGUFModelCatalog.swift      # Model download registry
+│       └── ModelDownloadManager.swift  # Download/pause/resume manager
+└── LocalPackages/
+    └── LlamaFramework/                # llama.cpp xcframework (SPM binary)
 ```
 
-## 模型分类速览
+### Key Design Decisions
 
-| 维度 | 分类 | 特点 | 典型代表 |
-|------|------|------|----------|
-| **部署位置** | 外部模型 | 通过 API 调用，能力强，需网络 | GPT-4、Claude、Gemini |
-| | 端侧模型 | 运行在手机上，离线可用，隐私好 | Gemma 2B、Phi-3-mini、Llama 3.2 |
-| **架构类型** | 纯文本(Dense) | 所有参数都参与计算，结构简单 | Llama、Gemma |
-| | MoE | 混合专家，只激活部分参数，效率高 | Mixtral、DeepSeek-V2 |
+- **Protocol-driven architecture**: All model providers conform to `AIModelProvider`, making it easy to add new model backends.
+- **llama.cpp via SPM binary target**: Pre-compiled xcframework avoids building C++ from source. Metal GPU acceleration enabled by default.
+- **UTF-8 stream decoding**: Custom `UTF8StreamDecoder` handles multi-byte character boundaries at token edges, preventing garbled Chinese/emoji output.
+- **Per-model chat templates**: Automatic model family detection (`detectModelFamily()`) applies the correct prompt format (ChatML for Qwen, Llama3 format for Llama, etc.).
 
-## 快速开始
+## Benchmark Quality Scoring
 
-### 1. 阅读文档（推荐顺序）
+The benchmark system includes automated quality evaluation using 8 rule types:
 
-```
-docs/01-ai-basics.md          → 先了解基本概念
-docs/02-model-categories.md   → 再理解模型分类
-docs/03-text-models.md        → 深入纯文本模型
-docs/04-moe-models.md         → 了解 MoE 架构
-docs/05-on-device-deployment.md → 动手部署到手机
-```
+| Rule Type | Description |
+|-----------|-------------|
+| `containsAny` | Output contains at least one expected keyword |
+| `containsAll` | Output contains all expected keywords |
+| `notContains` | Output does not contain forbidden terms |
+| `validJSON` | Output is valid JSON with required fields |
+| `matchesRegex` | Output matches a regular expression pattern |
+| `lengthRange` | Output length within expected range |
+| `exactAnswer` | Output contains the correct answer |
+| `containsCodeBlock` | Output includes code content |
 
-### 2. 运行 Demo
-
-1. 使用 Xcode 16+ 打开 `AIInfraApp/AIInfraApp.xcodeproj`
-2. 选择目标设备（推荐真机，iPhone 15 Pro 及以上）
-3. 运行项目，在 App 中切换不同模型进行对比
-
-### 3. Agent 工作流
-
-本项目使用 Agentic Engineering 方式开发，详见 `.codebuddy/agent-workflow.md`。
-
-## 系统要求
-
-- Xcode 16.0+
-- iOS 17.0+
-- Swift 5.9+
-- 真机测试推荐：iPhone 15 Pro 及以上（A17 Pro 芯片，支持更大模型）
+Each test case has weighted scoring rules. Results are displayed as Pass (>=80) / Partial (40-79) / Fail (<40).
 
 ## License
 

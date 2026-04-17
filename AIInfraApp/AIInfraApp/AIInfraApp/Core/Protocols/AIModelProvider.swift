@@ -19,6 +19,9 @@ protocol AIModelProvider: AnyObject, Identifiable, Sendable {
     /// 模型描述信息
     var description: String { get }
 
+    /// 模型描述信息（英文）
+    var descriptionEN: String { get }
+
 
     /// 模型架构类型（Dense / MoE）
     var architectureType: ModelArchitectureType { get }

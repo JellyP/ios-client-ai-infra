@@ -2,26 +2,28 @@ import SwiftUI
 
 /// 主 Tab 视图 —— App 的导航入口
 struct MainTabView: View {
+    @EnvironmentObject private var lang: LanguageManager
+
     var body: some View {
         TabView {
             ChatView()
                 .tabItem {
-                    Label("对话", systemImage: "message.fill")
+                    Label(L10n.tabChat, systemImage: "message.fill")
                 }
 
             BenchmarkView()
                 .tabItem {
-                    Label("测评", systemImage: "chart.bar.fill")
+                    Label(L10n.tabBenchmark, systemImage: "chart.bar.fill")
                 }
 
             ModelListView()
                 .tabItem {
-                    Label("模型", systemImage: "cpu.fill")
+                    Label(L10n.tabModels, systemImage: "cpu.fill")
                 }
 
             LearnView()
                 .tabItem {
-                    Label("学习", systemImage: "book.fill")
+                    Label(L10n.tabLearn, systemImage: "book.fill")
                 }
         }
     }
@@ -30,4 +32,5 @@ struct MainTabView: View {
 #Preview {
     MainTabView()
         .environmentObject(ModelManager())
+        .environmentObject(LanguageManager.shared)
 }

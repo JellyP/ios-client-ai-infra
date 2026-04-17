@@ -43,6 +43,7 @@ struct GGUFModelCatalog {
             contextLength: 2048,
             downloadURL: "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf",
             description: "超轻量，适合入门体验。中文能力不错，适合简单对话和文本分类。",
+            descriptionEN: "Ultra-lightweight, great for getting started. Good Chinese capability, suitable for simple chat and text classification.",
             tags: [.chinese, .lightweight, .recommended],
             architectureType: .dense,
             supportedLanguages: ["zh", "en"]
@@ -57,6 +58,7 @@ struct GGUFModelCatalog {
             contextLength: 2048,
             downloadURL: "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf",
             description: "中文能力最好的小模型，日常对话、翻译、摘要表现优秀。推荐首选。",
+            descriptionEN: "Best small model for Chinese. Excellent at daily conversation, translation, and summarization. Top recommendation.",
             tags: [.chinese, .recommended, .bestValue],
             architectureType: .dense,
             supportedLanguages: ["zh", "en"]
@@ -71,6 +73,7 @@ struct GGUFModelCatalog {
             contextLength: 2048,
             downloadURL: "https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf",
             description: "Qwen 家族端侧最强，中文理解和生成能力出色。需要 iPhone 15 Pro+。",
+            descriptionEN: "Strongest on-device Qwen model. Outstanding Chinese comprehension and generation. Requires iPhone 15 Pro+.",
             tags: [.chinese, .powerful],
             architectureType: .dense,
             supportedLanguages: ["zh", "en"]
@@ -87,6 +90,7 @@ struct GGUFModelCatalog {
             contextLength: 2048,
             downloadURL: "https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf",
             description: "Meta 出品，最轻量的 Llama 模型。英文能力好，中文一般。",
+            descriptionEN: "By Meta. Lightest Llama model. Strong English, limited Chinese.",
             tags: [.lightweight, .english],
             architectureType: .dense,
             supportedLanguages: ["en", "zh"]
@@ -101,6 +105,7 @@ struct GGUFModelCatalog {
             contextLength: 2048,
             downloadURL: "https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_M.gguf",
             description: "Llama 端侧旗舰，综合能力均衡。需要 iPhone 15 Pro+。",
+            descriptionEN: "Llama's on-device flagship. Well-balanced overall capability. Requires iPhone 15 Pro+.",
             tags: [.powerful, .english],
             architectureType: .dense,
             supportedLanguages: ["en", "zh"]
@@ -117,6 +122,7 @@ struct GGUFModelCatalog {
             contextLength: 2048,
             downloadURL: "https://huggingface.co/bartowski/gemma-2-2b-it-GGUF/resolve/main/gemma-2-2b-it-Q4_K_M.gguf",
             description: "Google 出品，训练数据质量高，均衡之选。",
+            descriptionEN: "By Google. High-quality training data, a balanced choice.",
             tags: [.recommended, .english],
             architectureType: .dense,
             supportedLanguages: ["en", "zh"]
@@ -133,6 +139,7 @@ struct GGUFModelCatalog {
             contextLength: 4096,
             downloadURL: "https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-E2B-it-Q4_K_M.gguf",
             description: "Google 最新 Gemma 4 系列，内置思考链推理，多语言支持 140+。需要 iPhone 15 Pro+。",
+            descriptionEN: "Google's latest Gemma 4 with built-in chain-of-thought reasoning. Supports 140+ languages. Requires iPhone 15 Pro+.",
             tags: [.recommended, .reasoning, .chinese],
             architectureType: .dense,
             supportedLanguages: ["en", "zh", "ja", "ko", "fr", "de"]
@@ -149,6 +156,7 @@ struct GGUFModelCatalog {
             contextLength: 4096,
             downloadURL: "https://huggingface.co/bartowski/Phi-3.5-mini-instruct-GGUF/resolve/main/Phi-3.5-mini-instruct-Q4_K_M.gguf",
             description: "微软出品，推理和代码能力在同级别中最强。上下文 4K。",
+            descriptionEN: "By Microsoft. Best reasoning and code capability in its class. 4K context.",
             tags: [.powerful, .code, .reasoning],
             architectureType: .dense,
             supportedLanguages: ["en", "zh"]
@@ -165,6 +173,7 @@ struct GGUFModelCatalog {
             contextLength: 2048,
             downloadURL: "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct-GGUF/resolve/main/smollm2-360m-instruct-q8_0.gguf",
             description: "极度轻量的模型（360M 参数），几乎所有 iPhone 都能跑。适合体验端侧推理的感觉。",
+            descriptionEN: "Extremely lightweight (360M params). Runs on almost any iPhone. Great for experiencing on-device inference.",
             tags: [.lightweight, .english, .recommended],
             architectureType: .dense,
             supportedLanguages: ["en"]
@@ -200,9 +209,15 @@ struct DownloadableModel: Identifiable, Codable {
     let contextLength: Int
     let downloadURL: String
     let description: String
+    let descriptionEN: String
     let tags: [ModelTag]
     let architectureType: ModelArchitectureType
     let supportedLanguages: [String]
+
+    /// 本地化描述
+    @MainActor var localizedDescription: String {
+        LanguageManager.shared.currentLanguage == .english ? descriptionEN : description
+    }
 
     /// 格式化的文件大小
     var formattedSize: String {
@@ -239,4 +254,17 @@ enum ModelTag: String, Codable, CaseIterable {
     case english = "英文好"
     case code = "代码"
     case reasoning = "推理"
+
+    @MainActor var localizedName: String {
+        switch self {
+        case .recommended: return L10n.tagRecommended
+        case .bestValue: return L10n.tagBestValue
+        case .lightweight: return L10n.tagLightweight
+        case .powerful: return L10n.tagPowerful
+        case .chinese: return L10n.tagChinese
+        case .english: return L10n.tagEnglish
+        case .code: return L10n.tagCode
+        case .reasoning: return L10n.tagReasoning
+        }
+    }
 }

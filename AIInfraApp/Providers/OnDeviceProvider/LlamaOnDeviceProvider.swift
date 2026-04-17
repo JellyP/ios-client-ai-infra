@@ -19,6 +19,7 @@ final class LlamaOnDeviceProvider: AIModelProvider, @unchecked Sendable {
     let id: String
     let displayName: String
     let description: String
+    let descriptionEN: String
     let providerType: AIModelProviderType = .onDevice
     let architectureType: ModelArchitectureType
     let modelInfo: ModelInfo
@@ -39,6 +40,7 @@ final class LlamaOnDeviceProvider: AIModelProvider, @unchecked Sendable {
         self.id = model.id
         self.displayName = model.displayName
         self.description = model.description
+        self.descriptionEN = model.descriptionEN
         self.architectureType = model.architectureType
         self.modelInfo = ModelInfo(
             family: model.family,
