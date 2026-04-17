@@ -424,11 +424,18 @@ extension BenchmarkTestCase {
             prompt: """
             一个 App 有 3 个页面，每个页面有 4 个网络请求，每个请求平均耗时 200ms。
             如果同一页面的请求并发执行，但页面之间是顺序加载的，
-            那么加载完所有页面的理论最短总耗时是多少？请一步步推理。
+            那么加载完所有页面的理论最短总耗时是多少？
+
+            A. 200ms
+            B. 600ms
+            C. 2400ms
+            D. 800ms
+
+            请先推理，最后一行输出你的答案字母（如：答案：B）。
             """,
             qualityRules: [
-                QualityRule(name: "包含正确答案 600ms", type: .containsAny, weight: 3, params: ["600ms", "600 ms", "0.6s", "0.6 s", "600毫秒"]),
-                QualityRule(name: "提及并发", type: .containsAny, weight: 1, params: ["并发", "并行", "concurrent", "parallel", "同时"]),
+                QualityRule(name: "选择正确答案 B", type: .matchesRegex, weight: 3, params: ["(?i)(答案|answer)[：:\\s]*B"]),
+                QualityRule(name: "提及并发/并行", type: .containsAny, weight: 1, params: ["并发", "并行", "concurrent", "parallel", "同时"]),
                 QualityRule(name: "有推理过程", type: .lengthRange, weight: 1, params: ["50", "5000"]),
             ]
         ),

@@ -136,10 +136,17 @@ extension BenchmarkTestCase {
             prompt: """
             An app has 3 pages, each page has 4 network requests, and each request takes an average of 200ms.
             If requests within the same page execute concurrently, but pages load sequentially,
-            what is the theoretical minimum total time to load all pages? Please reason step by step.
+            what is the theoretical minimum total time to load all pages?
+
+            A. 200ms
+            B. 600ms
+            C. 2400ms
+            D. 800ms
+
+            Please reason first, then output your answer letter on the last line (e.g., Answer: B).
             """,
             qualityRules: [
-                QualityRule(name: "Contains correct answer 600ms", type: .containsAny, weight: 3, params: ["600ms", "600 ms", "0.6s", "0.6 s", "600 milliseconds"]),
+                QualityRule(name: "Selects correct answer B", type: .matchesRegex, weight: 3, params: ["(?i)(answer|ans)[：:\\s]*B"]),
                 QualityRule(name: "Mentions concurrency", type: .containsAny, weight: 1, params: ["concurrent", "parallel", "simultaneously", "at the same time"]),
                 QualityRule(name: "Has reasoning process", type: .lengthRange, weight: 1, params: ["50", "5000"]),
             ]
