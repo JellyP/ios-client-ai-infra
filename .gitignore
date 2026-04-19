@@ -39,3 +39,4 @@ Documents/Models/
 .idea/
 *.xcworkspace
 !*.xcodeproj/project.xcworkspace/
+.codebuddy/
