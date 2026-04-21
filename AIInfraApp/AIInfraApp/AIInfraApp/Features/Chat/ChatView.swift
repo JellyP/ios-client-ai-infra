@@ -350,8 +350,9 @@ struct ChatView: View {
                 // 图片选择按钮
                 PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
                     Image(systemName: "photo.badge.plus")
-                        .font(.title3)
+                        .font(.system(size: 20))
                         .foregroundStyle(.orange)
+                        .frame(width: 36, height: 36)
                 }
                 .onChange(of: selectedPhotoItem) { _, newItem in
                     Task {
@@ -390,8 +391,9 @@ struct ChatView: View {
                     }
                 } label: {
                     Image(systemName: isGenerating ? "stop.circle.fill" : "arrow.up.circle.fill")
-                        .font(.title2)
+                        .font(.system(size: 28))
                         .foregroundStyle(isGenerating ? .red : .blue)
+                        .frame(width: 36, height: 36)
                 }
                 .disabled(!isGenerating && inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && selectedImageData == nil)
             }
