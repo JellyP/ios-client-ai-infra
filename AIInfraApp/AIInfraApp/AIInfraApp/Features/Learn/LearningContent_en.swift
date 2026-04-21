@@ -1056,4 +1056,252 @@ let learningModulesEN: [LearningModule] = [
         | Code assistance | 3B+ | Code correctness | Phi-3.5 Mini | 0.1-0.3 |
         """
     ),
+
+    // ── Chapter 10 ──
+    LearningModule(
+        order: 10,
+        title: "MoE Models & Image Classification",
+        subtitle: "How on-device MoE architecture enables efficient image recognition and classification",
+        icon: "photo.badge.checkmark",
+        color: .orange,
+        difficulty: .advanced,
+        content: """
+        ## MoE Models in On-Device Image Classification
+
+        ### Why Use MoE for Image Classification?
+
+        Traditional image classification solutions (MobileNet, ResNet) are **specialized models** — one model for one task. MoE (Mixture of Experts) LLMs are **general-purpose models** that can handle text understanding, image classification, sentiment analysis, and more simultaneously.
+
+        ```
+        Traditional Approach (Multiple Specialized Models):
+        ┌─────────────────────────────────────────────┐
+        │  Image Classification: MobileNet (10MB)      │
+        │  Text Classification: TextCNN (5MB)          │
+        │  Sentiment Analysis: BERT-tiny (50MB)        │
+        │  Translation: mBART (200MB)                  │
+        │  Total: 4 models, ~265MB                     │
+        └─────────────────────────────────────────────┘
+
+        MoE Approach (One General-Purpose Model):
+        ┌─────────────────────────────────────────────┐
+        │  MoE Model (1 file, ~2GB)                    │
+        │  ├── Image description classification  ✓     │
+        │  ├── Text classification               ✓     │
+        │  ├── Sentiment analysis                ✓     │
+        │  └── Translation                       ✓     │
+        │  Total: 1 model, multi-task reuse            │
+        └─────────────────────────────────────────────┘
+        ```
+
+        ### MoE Architecture Recap
+
+        The core idea of MoE is **sparse activation**: the model has many parameters (experts), but only activates a small subset for each inference.
+
+        ```
+        Input token
+            ↓
+        ┌─── Router ──────────────────────────┐
+        │  Calculate relevance score for each   │
+        │  expert, select Top-K most relevant   │
+        │  (typically K=2, using only 2 experts)│
+        └──────────────┬──────────────────────┘
+                       ↓
+        ┌─── Expert Pool ─────────────────────┐
+        │  [Expert 1] [Expert 2] [Expert 3]... │
+        │     ↓          ↓                     │
+        │   Active     Active   Dormant...     │
+        └──────────────┬──────────────────────┘
+                       ↓
+              Weighted merge output
+        ```
+
+        **iOS Analogy**: MoE is like a development team — designers, frontend devs, backend devs, QA engineers. Not everyone works on every task; the router (PM) picks the 2 most relevant people for each request.
+
+        ### Complete On-Device Image Classification Pipeline
+
+        Since on-device LLMs primarily accept text input, image classification requires a **vision-language bridge** pipeline:
+
+        ```
+        ┌─── Stage 1: Image Feature Extraction ───────┐
+        │  Input: UIImage / CGImage                     │
+        │  Tool: Apple Vision Framework / CoreML        │
+        │  Output: Text description (Caption)           │
+        │                                               │
+        │  Option A: VNClassifyImageRequest (built-in)  │
+        │            → "cat, indoor, sitting"           │
+        │  Option B: CoreML image captioning model      │
+        │            → "A cat sitting on a sofa"        │
+        │  Option C: Predefined label matching          │
+        │            → Direct Vision confidence ranking │
+        └───────────────────┬───────────────────────────┘
+                            ↓
+        ┌─── Stage 2: LLM Smart Classification ────────┐
+        │  Input: Image description text                │
+        │  Tool: On-device MoE model (DeepSeek, Gemma4) │
+        │                                               │
+        │  System Prompt:                               │
+        │  "You are an image classifier. Based on the   │
+        │   description, classify into: airplane /      │
+        │   automobile / bird / cat / deer / dog /      │
+        │   frog / horse / ship / truck                 │
+        │   Output only the category name."             │
+        │                                               │
+        │  User: "An orange cat curled up on a sofa"    │
+        │  Model output: "cat"                          │
+        └───────────────────┬───────────────────────────┘
+                            ↓
+        ┌─── Stage 3: Post-Processing & Confidence ────┐
+        │  Parse model output, match to predefined      │
+        │  categories. Combine with Vision confidence   │
+        │  Output: Classification result + confidence   │
+        └───────────────────────────────────────────────┘
+        ```
+
+        ### MoE Advantages in Classification Tasks
+
+        **1. Expert Routing Enables "Task Adaptation"**
+
+        When the input is an image description, the Router automatically selects experts best at understanding visual concepts:
+
+        ```
+        Input: "A silver airplane flying in blue sky with clouds"
+        Router selects:
+          → Expert #7 (object recognition)  weight: 0.6
+          → Expert #12 (scene understanding) weight: 0.4
+
+        Input: "Please translate this to Chinese"
+        Router selects:
+          → Expert #3 (language conversion)  weight: 0.7
+          → Expert #9 (grammar)              weight: 0.3
+        ```
+
+        **2. Computational Efficiency**
+
+        MoE models have many total parameters but use only a subset per inference:
+
+        | Model | Total Params | Active Params | Speed (iPhone 15 Pro) |
+        |-------|-------------|--------------|----------------------|
+        | Dense 3B | 3B | 3B | ~12 t/s |
+        | MoE 8×3B | 24B | 3B | ~10-12 t/s |
+        | MoE 8×7B | 56B | 7B | Out of memory |
+
+        MoE inference speed is close to the **active parameter count** equivalent Dense model, but total knowledge capacity far exceeds it.
+
+        **3. Classification-Specific Optimizations**
+
+        For classification tasks, use **very low temperature + limited output length**:
+
+        ```swift
+        let classificationConfig = GenerationConfig(
+            maxTokens: 32,        // Classification output is very short
+            temperature: 0.1,     // Near-greedy, most confident answer
+            topP: 0.5,
+            topK: 10,
+            repeatPenalty: 1.0    // No repeat penalty needed for classification
+        )
+        ```
+
+        ### Swift Code Examples
+
+        #### Using Vision Framework for Image Description
+
+        ```swift
+        import Vision
+
+        func classifyImage(_ image: CGImage) async -> [String] {
+            let request = VNClassifyImageRequest()
+            let handler = VNImageRequestHandler(cgImage: image)
+
+            try? handler.perform([request])
+
+            guard let results = request.results as? [VNClassificationObservation] else {
+                return []
+            }
+
+            // Return labels with confidence > 30%
+            return results
+                .filter { $0.confidence > 0.3 }
+                .prefix(5)
+                .map { "\\($0.identifier): \\(String(format: "%.0f%%", $0.confidence * 100))" }
+        }
+        ```
+
+        #### Combining with LLM for Smart Classification
+
+        ```swift
+        func classifyWithLLM(imageLabels: [String], provider: AIModelProvider) async -> String {
+            let description = imageLabels.joined(separator: ", ")
+            let prompt = \"\"\"
+            You are an image classifier. Based on the following Vision labels, classify into:
+            airplane / automobile / bird / cat / deer / dog / frog / horse / ship / truck
+            Output only the category name.
+
+            Labels: \\(description)
+            \"\"\"
+
+            let messages = [ChatMessage(role: .user, content: prompt)]
+            let config = GenerationConfig(maxTokens: 32, temperature: 0.1)
+
+            var result = ""
+            let stream = provider.chat(messages: messages, config: config)
+            for try await token in stream {
+                result += token.text
+            }
+            return result.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        ```
+
+        ### Performance Metrics & Optimization Tips
+
+        #### On-Device Image Classification Performance Targets
+
+        | Metric | Target | Notes |
+        |--------|--------|-------|
+        | Classification Accuracy | > 85% | 10-class classification |
+        | Per-Image Latency | < 500ms | Vision + LLM total |
+        | Memory Usage | < 2GB | Model + KV Cache |
+        | Throughput | > 5 images/sec | Batch processing scenarios |
+
+        #### Optimization Strategies
+
+        **1. Minimize System Prompt**
+        - Shorter prompt → faster Prefill → lower latency
+        - Classification prompts should be under 100 tokens
+
+        **2. Limit Output Length**
+        - `maxTokens = 32` is sufficient for category names
+        - Prevents the model from "verbose" explanations
+
+        **3. Keep Model Resident in Memory**
+        - If classification is frequent, avoid load/unload cycles
+        - Monitor memory pressure, only unload on `didReceiveMemoryWarning`
+
+        **4. Batch Processing**
+        - For photo album classification, don't load → classify → unload per image
+        - Load once, classify all images, then unload
+
+        ### Recommended On-Device MoE Models
+
+        | Model | Total Params | Active Params | Use Case |
+        |-------|-------------|--------------|----------|
+        | Gemma 4 E2B | 2.3B | ~2B | Lightweight classification, iPhone 15+ |
+        | DeepSeek MoE 16B | 16B | ~2.8B | High-accuracy classification (high memory) |
+        | Mixtral 8×7B | 46.7B | ~12.9B | Server / iPad Pro only |
+
+        > **Current Recommendation**: For iPhone on-device image classification, use **Gemma 4 E2B** or a comparable Dense model (e.g., Qwen2.5-1.5B). MoE's advantage is that **one model serves multiple tasks**, reducing total model count.
+
+        ### Comparison with Traditional Approaches
+
+        | Dimension | CoreML MobileNet | On-Device LLM Classification |
+        |-----------|-----------------|------------------------------|
+        | Accuracy | 90%+ (ImageNet) | 80-90% (depends on description quality) |
+        | Latency | 10-50ms | 200-500ms |
+        | Flexibility | Fixed categories | Any categories (just change prompt) |
+        | Model Size | 10-30MB | 0.5-2GB |
+        | Explainability | Low (probabilities) | High (can request reasoning) |
+        | Multi-task | Needs multiple models | One model, many tasks |
+
+        > **Best Practice**: For fixed categories requiring high speed, use CoreML. For flexible categories requiring context understanding, use LLM. Combine both: CoreML for coarse classification → LLM for fine-grained or confirmation.
+        """
+    ),
 ]

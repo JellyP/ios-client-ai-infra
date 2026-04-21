@@ -17,8 +17,24 @@ struct BenchmarkView: View {
     @State private var modelTotal = 0
     @State private var progress: Double = 0
 
+    // 图片分类测试状态
+    @State private var imageClassificationResults: [BenchmarkResult] = []
+    @State private var isRunningImageClassification = false
+    @State private var imageClassificationProgress: Double = 0
+    @State private var imageClassificationModelId: String?
+    @State private var useRealImages = false  // 真实图片 vs 文本描述模式
+    @StateObject private var datasetManager = ImageDatasetManager.shared
+
     private var testCases: [BenchmarkTestCase] {
         lang.currentLanguage == .english ? BenchmarkTestCase.standardTestSuiteEN : BenchmarkTestCase.standardTestSuite
+    }
+
+    private var imageTestCases: [BenchmarkTestCase] {
+        lang.currentLanguage == .english ? BenchmarkTestCase.imageClassificationSuiteEN : BenchmarkTestCase.imageClassificationSuite
+    }
+
+    private var realImageTestCases: [BenchmarkTestCase] {
+        lang.currentLanguage == .english ? BenchmarkTestCase.realImageClassificationSuite : BenchmarkTestCase.realImageClassificationSuiteCN
     }
 
     var body: some View {
@@ -39,6 +55,14 @@ struct BenchmarkView: View {
                 // 结果展示
                 if !results.isEmpty {
                     resultSection
+                }
+
+                // ── 图片分类测试 ──
+                imageClassificationSection
+
+                // 图片分类结果
+                if !imageClassificationResults.isEmpty {
+                    imageClassificationResultSection
                 }
             }
             .navigationTitle(L10n.benchmarkTitle)
@@ -118,6 +142,15 @@ struct BenchmarkView: View {
                                             .background(Color(.systemGray5))
                                             .clipShape(Capsule())
                                     }
+                                }
+
+                                if provider.supportsImageClassification {
+                                    Text(L10n.tagImageClassification)
+                                        .font(.caption2)
+                                        .padding(.horizontal, 4)
+                                        .padding(.vertical, 1)
+                                        .background(Color.orange.opacity(0.12))
+                                        .clipShape(Capsule())
                                 }
                             }
                             Text(provider.modelInfo.parameterCount)
@@ -532,6 +565,288 @@ struct BenchmarkView: View {
         }
     }
 
+    // MARK: - 图片分类测试
+
+    private var imageTestEligibleModels: [any AIModelProvider] {
+        if useRealImages {
+            let visionModelIds = Set(GGUFModelCatalog.allModels.filter { $0.isMultimodal }.map { $0.id })
+            return modelManager.providers.filter { visionModelIds.contains($0.id) }
+        } else {
+            return modelManager.providers.filter { $0.supportsImageClassification }
+        }
+    }
+
+    private var imageClassificationSection: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Image(systemName: "photo.stack")
+                        .font(.title3)
+                        .foregroundStyle(.orange)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(L10n.imageClassificationHeader)
+                            .font(.subheadline.weight(.medium))
+                        Text(L10n.needMultimodalModel)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                // 测试模式切换：文本描述 vs 真实图片
+                Picker("Mode", selection: $useRealImages) {
+                    Text(L10n.textDescriptionMode).tag(false)
+                    Text(L10n.realImageMode).tag(true)
+                }
+                .pickerStyle(.segmented)
+                .font(.caption)
+
+                // 真实图片模式：下载控制区
+                if useRealImages {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Image(systemName: datasetManager.isFullyDownloaded ? "checkmark.circle.fill" : "arrow.down.circle")
+                                .foregroundStyle(datasetManager.isFullyDownloaded ? .green : .orange)
+                            Text("\(datasetManager.downloadedCount)/\(ImageDatasetManager.totalImages) \(L10n.imagesDownloaded)")
+                                .font(.caption)
+                            Spacer()
+                            if datasetManager.isFullyDownloaded {
+                                Button(L10n.deleteTestImages) {
+                                    datasetManager.deleteAllImages()
+                                }
+                                .font(.caption2)
+                                .foregroundStyle(.red)
+                                .buttonStyle(.borderless)
+                            }
+                        }
+
+                        if datasetManager.isDownloading {
+                            ProgressView(value: datasetManager.downloadProgress)
+                            Text(L10n.downloadingImages)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        if !datasetManager.isFullyDownloaded && !datasetManager.isDownloading {
+                            Button {
+                                Task { await datasetManager.downloadAllImages() }
+                            } label: {
+                                HStack {
+                                    Image(systemName: "arrow.down.circle.fill")
+                                    Text(L10n.downloadTestImages)
+                                }
+                                .font(.caption)
+                            }
+                            .buttonStyle(.borderless)
+                        }
+
+                        if let error = datasetManager.errorMessage {
+                            Text(error)
+                                .font(.caption2)
+                                .foregroundStyle(.red)
+                        }
+                    }
+                    .padding(8)
+                    .background(Color(.systemGray6))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+
+                // 模型选择：真实图片模式只显示 Vision 模型，文本描述模式显示所有支持分类的模型
+                let eligibleModels = imageTestEligibleModels
+                if eligibleModels.isEmpty {
+                    Text(L10n.noEligibleModels)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Picker(L10n.selectModel, selection: Binding(
+                        get: { imageClassificationModelId ?? eligibleModels.first?.id ?? "" },
+                        set: { imageClassificationModelId = $0 }
+                    )) {
+                        ForEach(eligibleModels, id: \.id) { provider in
+                            HStack {
+                                Text(provider.displayName)
+                                if provider.architectureType == .moe {
+                                    Text("MoE")
+                                }
+                            }
+                            .tag(provider.id)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .font(.caption)
+
+                    // 显示已选模型的能力标注
+                    let selectedId = imageClassificationModelId ?? eligibleModels.first?.id ?? ""
+                    if let selectedProvider = eligibleModels.first(where: { $0.id == selectedId }) {
+                        HStack(spacing: 6) {
+                            Text(selectedProvider.architectureType.rawValue)
+                                .font(.caption2)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 2)
+                                .background(selectedProvider.architectureType == .moe ? Color.orange.opacity(0.15) : Color.purple.opacity(0.15))
+                                .clipShape(Capsule())
+                            Text(L10n.tagImageClassification)
+                                .font(.caption2)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 2)
+                                .background(Color.green.opacity(0.15))
+                                .clipShape(Capsule())
+                            Text(selectedProvider.modelInfo.parameterCount)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+
+                if isRunningImageClassification {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(L10n.imageClassifying)
+                            .font(.caption.weight(.medium))
+                        ProgressView(value: imageClassificationProgress)
+                        Text("\(Int(imageClassificationProgress * 500))/500")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Button {
+                    Task { await runImageClassification() }
+                } label: {
+                    HStack {
+                        Spacer()
+                        if isRunningImageClassification {
+                            ProgressView()
+                                .padding(.trailing, 4)
+                            Text(L10n.imageClassifying)
+                        } else {
+                            Image(systemName: "play.fill")
+                            Text(L10n.startImageClassification)
+                        }
+                        Spacer()
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .padding(.vertical, 6)
+                }
+                .disabled(isRunningImageClassification || isRunning
+                          || eligibleModels.isEmpty
+                          || (useRealImages && !datasetManager.isFullyDownloaded))
+            }
+        } header: {
+            Text(L10n.imageClassificationHeader)
+        } footer: {
+            Text(L10n.imageClassificationFooter)
+                .font(.caption2)
+        }
+    }
+
+    // MARK: - 图片分类结果
+
+    private var imageClassificationResultSection: some View {
+        Section {
+            let grouped = Dictionary(grouping: imageClassificationResults, by: \.modelName)
+            ForEach(Array(grouped.keys.sorted()), id: \.self) { modelName in
+                let modelResults = grouped[modelName] ?? []
+                let totalCount = modelResults.count
+                let correctCount = modelResults.filter { $0.qualityScore.totalScore >= 80 }.count
+                let accuracyPct = totalCount > 0 ? Double(correctCount) / Double(totalCount) * 100 : 0
+                let totalTime = modelResults.map(\.metrics.totalTime).reduce(0, +)
+                let speedItemsPerSec = totalTime > 0 ? Double(totalCount) / totalTime : 0
+                let avgTTFT = modelResults.map(\.metrics.timeToFirstToken).reduce(0, +) / max(Double(totalCount), 1)
+
+                DisclosureGroup {
+                    // 各类别准确率
+                    imageClassificationCategoryBreakdown(results: modelResults)
+                } label: {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(modelName)
+                            .font(.subheadline.weight(.semibold))
+                        HStack(spacing: 16) {
+                            VStack(spacing: 1) {
+                                Text(L10n.accuracy)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                Text(String(format: "%.1f%%", accuracyPct))
+                                    .font(.title3.weight(.bold).monospacedDigit())
+                                    .foregroundStyle(accuracyPct >= 80 ? .green : accuracyPct >= 50 ? .orange : .red)
+                            }
+                            VStack(spacing: 1) {
+                                Text(L10n.classificationSpeed)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                Text(String(format: "%.1f %@", speedItemsPerSec, L10n.itemsPerSec))
+                                    .font(.caption.weight(.semibold).monospacedDigit())
+                            }
+                            VStack(spacing: 1) {
+                                Text(L10n.avgTTFT)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                Text(String(format: "%.0fms", avgTTFT * 1000))
+                                    .font(.caption.weight(.semibold).monospacedDigit())
+                            }
+                            VStack(spacing: 1) {
+                                Text(L10n.totalCases)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                Text("\(correctCount)/\(totalCount)")
+                                    .font(.caption.weight(.semibold).monospacedDigit())
+                            }
+                        }
+                    }
+                }
+            }
+        } header: {
+            Text(L10n.classificationResults)
+        }
+    }
+
+    private func imageClassificationCategoryBreakdown(results: [BenchmarkResult]) -> some View {
+        let categories = ["飞机", "汽车", "鸟", "猫", "鹿", "狗", "蛙", "马", "船", "卡车",
+                          "airplane", "automobile", "bird", "cat", "deer", "dog", "frog", "horse", "ship", "truck"]
+        // Group results by the ground truth label (extracted from quality rule params)
+        let testSuite = imageTestCases
+        let caseIdToLabel = Dictionary(uniqueKeysWithValues: testSuite.compactMap { tc -> (UUID, String)? in
+            guard let rule = tc.qualityRules.first(where: { $0.type == .exactClassification }),
+                  let label = rule.params.first else { return nil }
+            return (tc.id, label)
+        })
+
+        let grouped = Dictionary(grouping: results) { r in
+            caseIdToLabel[r.testCaseId] ?? "unknown"
+        }
+
+        let orderedLabels = grouped.keys.sorted()
+
+        return VStack(alignment: .leading, spacing: 4) {
+            Text(L10n.perCategoryAccuracy)
+                .font(.caption.weight(.medium))
+                .padding(.bottom, 2)
+
+            ForEach(orderedLabels, id: \.self) { label in
+                let catResults = grouped[label] ?? []
+                let total = catResults.count
+                let correctNum = catResults.filter { $0.qualityScore.totalScore >= 80 }.count
+                let pct = total > 0 ? Double(correctNum) / Double(total) * 100 : 0
+
+                HStack {
+                    Text(label)
+                        .font(.caption)
+                        .frame(width: 50, alignment: .leading)
+                    GeometryReader { geo in
+                        RoundedRectangle(cornerRadius: 3)
+                            .fill(pct >= 80 ? Color.green : pct >= 50 ? Color.orange : Color.red)
+                            .opacity(0.7)
+                            .frame(width: geo.size.width * pct / 100)
+                    }
+                    .frame(height: 14)
+                    Text(String(format: "%.0f%%", pct))
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .frame(width: 36, alignment: .trailing)
+                }
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
     // MARK: - 运行逻辑（按模型顺序，每个模型测完卸载）
 
     private func runBenchmark() async {
@@ -611,6 +926,96 @@ struct BenchmarkView: View {
         isRunning = false
         currentTask = "测评完成"
         currentModelName = ""
+    }
+
+    // MARK: - 图片分类运行逻辑
+
+    private func runImageClassification() async {
+        let eligibleProviders = imageTestEligibleModels
+        let modelId = imageClassificationModelId ?? eligibleProviders.first?.id ?? ""
+        guard let provider = eligibleProviders.first(where: { $0.id == modelId }) else { return }
+
+        isRunningImageClassification = true
+        imageClassificationResults.removeAll()
+        imageClassificationProgress = 0
+
+        // 加载模型
+        if provider.state == .unloaded || provider.state != .ready {
+            do {
+                try await provider.load()
+            } catch {
+                isRunningImageClassification = false
+                return
+            }
+        }
+
+        // 根据模式选择测试用例
+        let cases = useRealImages ? realImageTestCases : imageTestCases
+        let totalCount = cases.count
+
+        // 使用低温度配置以获得更确定的分类输出
+        let classificationConfig = GenerationConfig(
+            maxTokens: 32,
+            temperature: 0.1,
+            topP: 0.5,
+            topK: 10,
+            repeatPenalty: 1.0
+        )
+
+        for (idx, testCase) in cases.enumerated() {
+            // 构造消息：真实图片模式从本地数据集加载图片数据
+            var imageDataList: [Data]?
+            if let imageNames = testCase.testImageNames, !imageNames.isEmpty {
+                imageDataList = imageNames.compactMap { relativePath in
+                    // 从 Documents/ImageDatasets/ 加载（真实图片测试用例使用相对路径）
+                    let documentsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+                    let fullPath = documentsDir.appendingPathComponent("ImageDatasets").appendingPathComponent(relativePath)
+                    return try? Data(contentsOf: fullPath)
+                }
+                // 如果没有加载到任何图片（未下载），imageDataList 设为 nil 走文本路径
+                if imageDataList?.isEmpty == true {
+                    imageDataList = nil
+                }
+            }
+
+            let messages = [ChatMessage(role: .user, content: testCase.prompt, imageData: imageDataList)]
+            let stream = provider.chat(messages: messages, config: classificationConfig)
+
+            var response = ""
+            var finalMetrics: GenerationMetrics?
+
+            do {
+                for try await token in stream {
+                    response += token.text
+                    if token.isFinished {
+                        finalMetrics = token.metrics
+                    }
+                }
+            } catch {
+                response = "[错误: \(error.localizedDescription)]"
+            }
+
+            if let metrics = finalMetrics {
+                let score = QualityScorer.evaluate(response: response, rules: testCase.qualityRules)
+                let result = BenchmarkResult(
+                    testCaseId: testCase.id,
+                    testCaseName: testCase.name,
+                    modelName: provider.displayName,
+                    providerType: provider.providerType,
+                    architectureType: provider.architectureType,
+                    metrics: metrics,
+                    response: response,
+                    qualityScore: score
+                )
+                imageClassificationResults.append(result)
+            }
+
+            imageClassificationProgress = Double(idx + 1) / Double(totalCount)
+        }
+
+        // 卸载模型释放内存
+        provider.unload()
+        isRunningImageClassification = false
     }
 }
 

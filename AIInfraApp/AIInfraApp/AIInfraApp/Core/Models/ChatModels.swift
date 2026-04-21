@@ -8,12 +8,21 @@ struct ChatMessage: Identifiable, Codable, Equatable {
     let role: MessageRole
     let content: String
     let timestamp: Date
+    /// 附带的图片数据（JPEG/PNG），用于多模态模型。nil 表示纯文本消息。
+    var imageData: [Data]?
 
-    init(id: UUID = UUID(), role: MessageRole, content: String, timestamp: Date = Date()) {
+    init(id: UUID = UUID(), role: MessageRole, content: String, timestamp: Date = Date(), imageData: [Data]? = nil) {
         self.id = id
         self.role = role
         self.content = content
         self.timestamp = timestamp
+        self.imageData = imageData
+    }
+
+    /// 是否包含图片
+    var hasImages: Bool {
+        guard let images = imageData else { return false }
+        return !images.isEmpty
     }
 }
 

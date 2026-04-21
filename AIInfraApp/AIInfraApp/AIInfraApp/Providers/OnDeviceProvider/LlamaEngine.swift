@@ -110,12 +110,26 @@ final class LlamaEngine {
     private var context: OpaquePointer?  // llama_context * (opaque)
     private var sampler: UnsafeMutablePointer<llama_sampler>?
 
+    #if LLAMA_MTMD_ENABLED
+    /// 多模态上下文（需要自编译含 mtmd 的 xcframework）
+    private var mtmdCtx: OpaquePointer?   // mtmd_context *
+    #endif
+
     private let modelPath: String
     private let contextLength: UInt32
     private let gpuEnabled: Bool
 
     /// 模型是否已加载
     var isLoaded: Bool { model != nil && context != nil }
+
+    /// 是否已加载多模态上下文
+    var isMultimodalLoaded: Bool {
+        #if LLAMA_MTMD_ENABLED
+        return mtmdCtx != nil
+        #else
+        return false
+        #endif
+    }
 
     init(modelPath: String, contextLength: UInt32 = 2048, gpuEnabled: Bool = true) {
         self.modelPath = modelPath
@@ -167,6 +181,9 @@ final class LlamaEngine {
         if let s = sampler { llama_sampler_free(s); sampler = nil }
         if let c = context { llama_free(c); context = nil }
         if let m = model { llama_model_free(m); model = nil }
+        #if LLAMA_MTMD_ENABLED
+        if let mc = mtmdCtx { mtmd_free(mc); mtmdCtx = nil }
+        #endif
         llama_backend_free()
     }
 
@@ -512,6 +529,200 @@ final class LlamaEngine {
     }
 }
 
+// MARK: - 多模态支持 (mtmd)
+
+#if LLAMA_MTMD_ENABLED
+extension LlamaEngine {
+
+    /// 加载多模态投影文件（mmproj），启用图片/音频输入能力
+    /// - Parameter mmprojPath: mmproj GGUF 文件的本地路径
+    func loadMultimodal(mmprojPath: String) throws {
+        guard let model else {
+            throw LlamaEngineError.loadFailed("需要先加载主模型才能加载多模态投影")
+        }
+
+        var params = mtmd_context_params_default()
+        // CLIP 视觉编码器使用 CPU（避免 Metal shader 在某些 GPU 上的兼容性问题）
+        // 主模型推理仍然使用 GPU (Metal)
+        params.use_gpu = false
+        params.n_threads = Int32(max(ProcessInfo.processInfo.activeProcessorCount - 2, 1))
+
+        mtmdCtx = mtmd_init_from_file(mmprojPath, model, params)
+        guard mtmdCtx != nil else {
+            throw LlamaEngineError.loadFailed("无法加载多模态投影文件: \(mmprojPath)")
+        }
+
+        print("[LlamaEngine] 多模态投影加载成功: \(mmprojPath)")
+        if mtmd_support_vision(mtmdCtx) {
+            print("[LlamaEngine]   ✓ 支持视觉输入（图片）")
+        }
+    }
+
+    /// 带图片的多模态推理
+    func generateWithImages(
+        messages: [(role: String, content: String, images: [Data])],
+        temperature: Float = 0.7,
+        topK: Int32 = 40,
+        topP: Float = 0.9,
+        maxTokens: Int = 2048,
+        repeatPenalty: Float = 1.1,
+        onToken: @escaping (String) -> Void,
+        isCancelled: @escaping () -> Bool
+    ) throws {
+        guard let model, let context, let mtmdCtx else {
+            throw LlamaEngineError.notLoaded
+        }
+
+        let vocab = llama_model_get_vocab(model)
+
+        // 0. 清空 KV cache
+        let memory = llama_get_memory(context)
+        llama_memory_clear(memory, true)
+
+        // 1. 收集所有图片
+        var allImages: [Data] = []
+        for msg in messages {
+            allImages.append(contentsOf: msg.images)
+        }
+
+        print("[LlamaEngine] 多模态推理: \(allImages.count) 张图片, \(messages.count) 条消息")
+
+        // 2. 构建 prompt，每张图片位置插入 media marker
+        let marker = String(cString: mtmd_default_marker())
+        var promptParts: [(role: String, content: String)] = []
+        for msg in messages {
+            if msg.images.isEmpty {
+                promptParts.append((role: msg.role, content: msg.content))
+            } else {
+                let markers = msg.images.map { _ in marker }.joined(separator: "\n")
+                promptParts.append((role: msg.role, content: markers + "\n" + msg.content))
+            }
+        }
+
+        let prompt = applyChatTemplate(messages: promptParts)
+        print("[LlamaEngine] 多模态 prompt 长度: \(prompt.count) 字符, marker: \(marker)")
+
+        // 3. 使用 mtmd_helper_bitmap_init_from_buf 创建 bitmaps（支持 JPEG/PNG/BMP 等）
+        var bitmaps: [OpaquePointer?] = []
+        defer { bitmaps.forEach { if let b = $0 { mtmd_bitmap_free(b) } } }
+
+        for (idx, imageData) in allImages.enumerated() {
+            let bitmap = imageData.withUnsafeBytes { rawBuf -> OpaquePointer? in
+                guard let ptr = rawBuf.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return nil }
+                return mtmd_helper_bitmap_init_from_buf(mtmdCtx, ptr, imageData.count)
+            }
+            guard let bitmap else {
+                print("[LlamaEngine] 警告: 图片 \(idx) 解码失败 (\(imageData.count) bytes)")
+                throw LlamaEngineError.decodeFailed("图片 \(idx) 解码失败")
+            }
+            bitmaps.append(bitmap)
+            print("[LlamaEngine] 图片 \(idx): \(mtmd_bitmap_get_nx(bitmap))x\(mtmd_bitmap_get_ny(bitmap))")
+        }
+
+        // 4. mtmd_tokenize
+        let chunks = mtmd_input_chunks_init()
+        defer { mtmd_input_chunks_free(chunks) }
+
+        var inputText = mtmd_input_text(text: nil, add_special: true, parse_special: true)
+        let promptCStr = strdup(prompt)
+        defer { free(promptCStr) }
+        inputText.text = UnsafePointer(promptCStr)
+
+        var bitmapsCopy = bitmaps
+        let tokenizeResult = bitmapsCopy.withUnsafeMutableBufferPointer { ptr in
+            mtmd_tokenize(mtmdCtx, chunks, &inputText, ptr.baseAddress, bitmaps.count)
+        }
+
+        guard tokenizeResult == 0 else {
+            throw LlamaEngineError.decodeFailed("多模态分词失败 (code: \(tokenizeResult))")
+        }
+
+        let totalTokens = mtmd_helper_get_n_tokens(chunks)
+        let nChunks = mtmd_input_chunks_size(chunks)
+        print("[LlamaEngine] 多模态分词完成: \(nChunks) chunks, \(totalTokens) tokens")
+
+        // 检查 token 数是否超过 context 容量
+        if totalTokens >= Int(contextLength) {
+            throw LlamaEngineError.decodeFailed("图片+文本的 token 数 (\(totalTokens)) 超过 context 容量 (\(contextLength))，请使用更小的图片")
+        }
+
+        // 5. 创建采样链
+        if let s = sampler { llama_sampler_free(s) }
+        let chainParams = llama_sampler_chain_default_params()
+        sampler = llama_sampler_chain_init(chainParams)
+        guard let sampler else { throw LlamaEngineError.samplerFailed }
+
+        llama_sampler_chain_add(sampler, llama_sampler_init_penalties(64, repeatPenalty, 0.0, 0.0))
+        llama_sampler_chain_add(sampler, llama_sampler_init_top_k(topK))
+        llama_sampler_chain_add(sampler, llama_sampler_init_top_p(topP, 1))
+        llama_sampler_chain_add(sampler, llama_sampler_init_temp(temperature))
+        llama_sampler_chain_add(sampler, llama_sampler_init_dist(UInt32.random(in: 0...UInt32.max)))
+
+        // 6. 使用 mtmd_helper_eval_chunks 一次性处理所有 chunks（文本+图片）
+        //    CLIP 编码使用 CPU（避免 Metal 兼容性问题），可能需要几秒
+        print("[LlamaEngine] 开始多模态 eval (\(totalTokens) tokens, CLIP 编码使用 CPU)...")
+        let evalStartTime = CFAbsoluteTimeGetCurrent()
+        var nPast: llama_pos = 0
+        let evalResult = mtmd_helper_eval_chunks(
+            mtmdCtx,
+            context,
+            chunks,
+            0,          // n_past
+            0,          // seq_id
+            512,        // n_batch
+            true,       // logits_last
+            &nPast
+        )
+
+        guard evalResult == 0 else {
+            throw LlamaEngineError.decodeFailed("多模态 eval 失败 (code: \(evalResult))")
+        }
+
+        let evalTime = CFAbsoluteTimeGetCurrent() - evalStartTime
+        print("[LlamaEngine] 多模态 prefill 完成, n_past=\(nPast), 耗时: \(String(format: "%.1f", evalTime))s")
+
+        // 7. Decode 阶段（逐 token 生成）
+        var generatedCount = 0
+        let utf8Decoder = UTF8StreamDecoder()
+
+        while generatedCount < maxTokens && !isCancelled() {
+            let newToken = llama_sampler_sample(sampler, context, -1)
+            llama_sampler_accept(sampler, newToken)
+
+            if llama_vocab_is_eog(vocab, newToken) {
+                break
+            }
+
+            generatedCount += 1
+
+            let piece = tokenToBytes(token: newToken)
+            if !piece.isEmpty {
+                let text = utf8Decoder.decode(piece)
+                if !text.isEmpty {
+                    onToken(text)
+                }
+            }
+
+            var tokenBuf: [llama_token] = [newToken]
+            let nextBatch = tokenBuf.withUnsafeMutableBufferPointer { ptr in
+                llama_batch_get_one(ptr.baseAddress, 1)
+            }
+            let decodeResult = llama_decode(context, nextBatch)
+            if decodeResult != 0 {
+                break
+            }
+        }
+
+        let remainingText = utf8Decoder.flush()
+        if !remainingText.isEmpty {
+            onToken(remainingText)
+        }
+
+        print("[LlamaEngine] 多模态生成完成: \(generatedCount) tokens")
+    }
+}
+#endif
+
 // MARK: - 错误
 
 enum LlamaEngineError: LocalizedError {
@@ -520,6 +731,7 @@ enum LlamaEngineError: LocalizedError {
     case tokenizeFailed
     case samplerFailed
     case decodeFailed(String)
+    case multimodalNotAvailable
 
     var errorDescription: String? {
         switch self {
@@ -528,6 +740,7 @@ enum LlamaEngineError: LocalizedError {
         case .tokenizeFailed: return "文本分词失败"
         case .samplerFailed: return "采样器初始化失败"
         case .decodeFailed(let msg): return "推理失败: \(msg)"
+        case .multimodalNotAvailable: return "多模态支持未启用，需要使用含 mtmd 的 xcframework"
         }
     }
 }

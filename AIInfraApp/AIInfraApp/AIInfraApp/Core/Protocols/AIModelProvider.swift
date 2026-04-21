@@ -35,6 +35,9 @@ protocol AIModelProvider: AnyObject, Identifiable, Sendable {
     /// 模型信息（参数量、大小等）
     var modelInfo: ModelInfo { get }
 
+    /// 是否支持图片分类测试
+    var supportsImageClassification: Bool { get }
+
     /// 加载模型到内存
     func load() async throws
 

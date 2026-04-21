@@ -186,6 +186,7 @@ enum L10n {
     static var tagEnglish: String { isEn ? "English" : "英文好" }
     static var tagCode: String { isEn ? "Code" : "代码" }
     static var tagReasoning: String { isEn ? "Reasoning" : "推理" }
+    static var tagImageClassification: String { isEn ? "Image Classification" : "图片分类" }
 
     // MARK: - Benchmark Categories
     static var catIntent: String { isEn ? "Intent" : "意图识别" }
@@ -200,4 +201,37 @@ enum L10n {
     static var catHallucination: String { isEn ? "Hallucination" : "幻觉测试" }
     static var catEdge: String { isEn ? "Edge Case" : "边界输入" }
     static var catMultiTurn: String { isEn ? "Multi-turn" : "多轮指令" }
+    static var catImageClassification: String { isEn ? "Image Classification" : "图片分类" }
+
+    // MARK: - Image Classification Benchmark
+    static var imageClassificationHeader: String { isEn ? "Image Classification Test" : "图片分类测试" }
+    static var imageClassificationFooter: String { isEn ? "500 text-described images across 10 CIFAR-10 categories. Tests model's ability to classify image descriptions." : "基于 CIFAR-10 的 10 个类别共 500 条图片文本描述，测试模型的图片描述分类能力。" }
+    static var accuracy: String { isEn ? "Accuracy" : "准确率" }
+    static var classificationSpeed: String { isEn ? "Speed" : "分类速度" }
+    static var itemsPerSec: String { isEn ? "items/s" : "条/秒" }
+    static var perCategoryAccuracy: String { isEn ? "Per-Category Accuracy" : "各类别准确率" }
+    static var totalCases: String { isEn ? "Total" : "总计" }
+    static var correct: String { isEn ? "Correct" : "正确" }
+    static var incorrect: String { isEn ? "Incorrect" : "错误" }
+    static var startImageClassification: String { isEn ? "Start Image Classification" : "开始图片分类测试" }
+    static var imageClassifying: String { isEn ? "Classifying..." : "分类中..." }
+    static var classificationResults: String { isEn ? "Classification Results" : "分类结果" }
+    static var selectImageTestHint: String { isEn ? "Run 500 image description classification tasks" : "运行 500 条图片描述分类任务" }
+    static var noEligibleModels: String { isEn ? "No models support image classification. Models ≥ 1.5B with MoE or strong instruction following are required." : "暂无支持图片分类的模型。需要 ≥ 1.5B 的 MoE 或强指令遵循模型。" }
+
+    // MARK: - Real Image Dataset
+    static var downloadTestImages: String { isEn ? "Download Test Images" : "下载测试图片" }
+    static var downloadingImages: String { isEn ? "Downloading images..." : "正在下载图片..." }
+    static var imagesDownloaded: String { isEn ? "images downloaded" : "张图片已下载" }
+    static var testImagesReady: String { isEn ? "Test images ready" : "测试图片已就绪" }
+    static var realImageTest: String { isEn ? "Real Image Test" : "真实图片测试" }
+    static var realImageTestHint: String { isEn ? "Classify 500 real CIFAR-10 images with multimodal model" : "使用多模态模型识别 500 张 CIFAR-10 真实图片" }
+    static var textDescriptionMode: String { isEn ? "Text Description Mode" : "文本描述模式" }
+    static var realImageMode: String { isEn ? "Real Image Mode" : "真实图片模式" }
+    static var deleteTestImages: String { isEn ? "Delete Test Images" : "删除测试图片" }
+    static var needDownloadFirst: String { isEn ? "Please download test images first" : "请先下载测试图片" }
+    static var needMultimodalModel: String { isEn ? "Requires multimodal model (with mmproj). Text models will use description mode." : "需要多模态模型（带 mmproj）。纯文本模型将使用文本描述模式。" }
+
+    // MARK: - Image Chat
+    static var imageAttached: String { isEn ? "[Image attached]" : "[已附带图片]" }
 }

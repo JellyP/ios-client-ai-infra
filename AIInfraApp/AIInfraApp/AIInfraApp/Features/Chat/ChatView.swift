@@ -1,5 +1,6 @@
 import SwiftUI
 import Textual
+import PhotosUI
 
 // MARK: - 聊天界面
 
@@ -19,6 +20,11 @@ struct ChatView: View {
     @State private var showHistory = false
     @State private var currentSessionId: UUID = UUID()
     @FocusState private var isInputFocused: Bool
+
+    // 图片选择相关
+    @State private var selectedPhotoItem: PhotosPickerItem?
+    @State private var selectedImageData: Data?
+    @State private var selectedImagePreview: Image?
 
     var body: some View {
         NavigationStack {
@@ -112,6 +118,24 @@ struct ChatView: View {
         session.updatedAt = Date()
         historyStore.save(session)
     }
+
+    /// 缩放图片到最大尺寸（防止大图导致 Metal GPU crash / OOM）
+    #if canImport(UIKit)
+    static func resizeImage(_ image: UIImage, maxDimension: CGFloat) -> UIImage {
+        let size = image.size
+        guard size.width > maxDimension || size.height > maxDimension else {
+            return image
+        }
+
+        let scale = min(maxDimension / size.width, maxDimension / size.height)
+        let newSize = CGSize(width: size.width * scale, height: size.height * scale)
+
+        let renderer = UIGraphicsImageRenderer(size: newSize)
+        return renderer.image { _ in
+            image.draw(in: CGRect(origin: .zero, size: newSize))
+        }
+    }
+    #endif
 
     // MARK: - 模型选择器
 
@@ -286,30 +310,94 @@ struct ChatView: View {
     // MARK: - 输入区域
 
     private var inputArea: some View {
-        HStack(alignment: .bottom, spacing: 8) {
-            TextField(L10n.inputPlaceholder, text: $inputText, axis: .vertical)
-                .focused($isInputFocused)
-                .lineLimit(1...5)
-                .textFieldStyle(.plain)
-                .padding(10)
-                .background(Color(.systemGray6))
-                .clipShape(RoundedRectangle(cornerRadius: 20))
-
-            Button {
-                if isGenerating {
-                    cancelGeneration()
-                } else {
-                    sendMessage()
+        VStack(spacing: 6) {
+            // 图片预览区（已选择图片时显示）
+            if let preview = selectedImagePreview {
+                HStack {
+                    preview
+                        .resizable()
+                        .scaledToFit()
+                        .frame(height: 60)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(Color.orange, lineWidth: 1)
+                        )
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(L10n.imageAttached)
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(.orange)
+                        if let data = selectedImageData {
+                            Text(MemoryUtils.formatBytes(Int64(data.count)))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Spacer()
+                    Button {
+                        selectedImageData = nil
+                        selectedImagePreview = nil
+                        selectedPhotoItem = nil
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
                 }
-            } label: {
-                Image(systemName: isGenerating ? "stop.circle.fill" : "arrow.up.circle.fill")
-                    .font(.title2)
-                    .foregroundStyle(isGenerating ? .red : .blue)
+                .padding(.horizontal)
             }
-            .disabled(!isGenerating && inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+            HStack(alignment: .bottom, spacing: 8) {
+                // 图片选择按钮
+                PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
+                    Image(systemName: "photo.badge.plus")
+                        .font(.title3)
+                        .foregroundStyle(.orange)
+                }
+                .onChange(of: selectedPhotoItem) { _, newItem in
+                    Task {
+                        guard let newItem else { return }
+                        if let data = try? await newItem.loadTransferable(type: Data.self) {
+                            #if canImport(UIKit)
+                            if let uiImage = UIImage(data: data) {
+                                // 缩放到最大 384x384 并转为 JPEG
+                                // 视觉模型内部会再 resize，过大的图只会增加 token 数导致很慢
+                                let resized = Self.resizeImage(uiImage, maxDimension: 384)
+                                selectedImageData = resized.jpegData(compressionQuality: 0.85)
+                                selectedImagePreview = Image(uiImage: resized)
+                            } else {
+                                selectedImageData = data
+                            }
+                            #else
+                            selectedImageData = data
+                            #endif
+                        }
+                    }
+                }
+
+                TextField(L10n.inputPlaceholder, text: $inputText, axis: .vertical)
+                    .focused($isInputFocused)
+                    .lineLimit(1...5)
+                    .textFieldStyle(.plain)
+                    .padding(10)
+                    .background(Color(.systemGray6))
+                    .clipShape(RoundedRectangle(cornerRadius: 20))
+
+                Button {
+                    if isGenerating {
+                        cancelGeneration()
+                    } else {
+                        sendMessage()
+                    }
+                } label: {
+                    Image(systemName: isGenerating ? "stop.circle.fill" : "arrow.up.circle.fill")
+                        .font(.title2)
+                        .foregroundStyle(isGenerating ? .red : .blue)
+                }
+                .disabled(!isGenerating && inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && selectedImageData == nil)
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 8)
         }
-        .padding(.horizontal)
-        .padding(.vertical, 8)
     }
 
     // MARK: - 模型选择面板
@@ -413,13 +501,24 @@ struct ChatView: View {
 
     private func sendMessage() {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+        let hasImage = selectedImageData != nil
+
+        // 需要有文本或图片才能发送
+        guard !text.isEmpty || hasImage else { return }
 
         isInputFocused = false
 
-        let userMessage = ChatMessage(role: .user, content: text)
+        // 构建消息（可能附带图片）
+        let imageData: [Data]? = selectedImageData != nil ? [selectedImageData!] : nil
+        let messageContent = text.isEmpty ? (L10n.imageAttached) : text
+        let userMessage = ChatMessage(role: .user, content: messageContent, imageData: imageData)
         messages.append(userMessage)
+
+        // 清空输入
         inputText = ""
+        selectedImageData = nil
+        selectedImagePreview = nil
+        selectedPhotoItem = nil
         currentResponse = ""
 
         guard let provider = modelManager.selectedProvider else { return }
@@ -562,12 +661,28 @@ struct MessageBubbleView: View {
     private var userBubble: some View {
         HStack {
             Spacer()
-            Text(message.content)
-                .font(.body)
-                .padding(12)
-                .background(Color.blue)
-                .foregroundStyle(.white)
-                .clipShape(RoundedRectangle(cornerRadius: 16))
+            VStack(alignment: .trailing, spacing: 4) {
+                // 显示附带的图片
+                if let imageDataList = message.imageData {
+                    ForEach(imageDataList.indices, id: \.self) { i in
+                        #if canImport(UIKit)
+                        if let uiImage = UIImage(data: imageDataList[i]) {
+                            Image(uiImage: uiImage)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(maxWidth: 200, maxHeight: 150)
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                        }
+                        #endif
+                    }
+                }
+                Text(message.content)
+                    .font(.body)
+                    .padding(12)
+                    .background(Color.blue)
+                    .foregroundStyle(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+            }
         }
     }
 

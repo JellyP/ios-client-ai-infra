@@ -9,13 +9,22 @@ struct BenchmarkTestCase: Identifiable, Codable {
     let category: BenchmarkCategory
     let prompt: String
     let qualityRules: [QualityRule]
+    /// Bundle 中的测试图片资源名称（多模态模型用真实图片，纯文本模型忽略此字段）
+    let testImageNames: [String]?
 
-    init(id: UUID = UUID(), name: String, category: BenchmarkCategory, prompt: String, qualityRules: [QualityRule] = []) {
+    init(id: UUID = UUID(), name: String, category: BenchmarkCategory, prompt: String, qualityRules: [QualityRule] = [], testImageNames: [String]? = nil) {
         self.id = id
         self.name = name
         self.category = category
         self.prompt = prompt
         self.qualityRules = qualityRules
+        self.testImageNames = testImageNames
+    }
+
+    /// 是否包含测试图片
+    var hasTestImages: Bool {
+        guard let images = testImageNames else { return false }
+        return !images.isEmpty
     }
 }
 
@@ -33,6 +42,7 @@ enum BenchmarkCategory: String, Codable, CaseIterable {
     case hallucination = "幻觉测试"
     case edgeCase = "边界输入"
     case multiTurn = "多轮指令"
+    case imageClassification = "图片分类"
 }
 
 // MARK: - 质量评估规则
@@ -70,6 +80,8 @@ struct QualityRule: Identifiable, Codable {
         case exactAnswer
         /// 输出必须包含代码块
         case containsCodeBlock
+        /// 输出的首个词/标签必须与 params[0] 精确匹配（忽略大小写和空白）
+        case exactClassification
     }
 }
 
@@ -211,6 +223,26 @@ enum QualityScorer {
                 return RuleResult(ruleName: rule.name, passed: true, detail: "包含代码内容", weight: rule.weight)
             }
             return RuleResult(ruleName: rule.name, passed: false, detail: "未包含代码内容", weight: rule.weight)
+
+        case .exactClassification:
+            guard let expected = rule.params.first else {
+                return RuleResult(ruleName: rule.name, passed: false, detail: "未设置预期类别", weight: rule.weight)
+            }
+            // 提取模型输出的第一个非空行，去掉标点和多余空格后与预期类别比较
+            let firstLine = cleaned.components(separatedBy: .newlines)
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .first { !$0.isEmpty } ?? ""
+            let normalizedOutput = firstLine
+                .replacingOccurrences(of: "[.,;:!?\"'()\\[\\]{}]", with: "", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            // 精确匹配或包含匹配
+            let allExpected = rule.params.map { $0.lowercased() }
+            let matched = allExpected.first { normalizedOutput.contains($0) }
+            if let m = matched {
+                return RuleResult(ruleName: rule.name, passed: true, detail: "分类正确: \(m)", weight: rule.weight)
+            }
+            return RuleResult(ruleName: rule.name, passed: false, detail: "分类错误: 预期「\(expected)」，实际「\(firstLine)」", weight: rule.weight)
         }
     }
 

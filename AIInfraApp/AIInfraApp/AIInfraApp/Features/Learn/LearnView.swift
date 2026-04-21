@@ -1270,6 +1270,252 @@ let learningModules: [LearningModule] = [
         | 代码辅助 | 3B+ | 代码正确率 | Phi-3.5 Mini | 0.1-0.3 |
         """
     ),
+
+    // ── 第10章 ──
+    LearningModule(
+        order: 10,
+        title: "MoE 模型与图片分类",
+        subtitle: "端侧 MoE 架构如何实现高效图片识别与分类",
+        icon: "photo.badge.checkmark",
+        color: .orange,
+        difficulty: .advanced,
+        content: """
+        ## MoE 模型在端侧图片分类中的应用
+
+        ### 为什么用 MoE 做图片分类？
+
+        传统的图片分类方案（如 MobileNet、ResNet）是**专用模型**——一个模型只能做一种任务。而 MoE（Mixture of Experts）大模型是**通用模型**，可以同时处理文本理解、图片分类、情感分析等多种任务。
+
+        ```
+        传统方案（多个专用模型）：
+        ┌─────────────────────────────────────────────┐
+        │  图片分类: MobileNet (10MB)                   │
+        │  文本分类: TextCNN (5MB)                      │
+        │  情感分析: BERT-tiny (50MB)                   │
+        │  翻译:     mBART (200MB)                     │
+        │  总计: 4 个模型, ~265MB                       │
+        └─────────────────────────────────────────────┘
+
+        MoE 方案（一个通用模型）：
+        ┌─────────────────────────────────────────────┐
+        │  MoE 模型 (1 个文件, ~2GB)                    │
+        │  ├── 图片描述分类  ✓                          │
+        │  ├── 文本分类      ✓                          │
+        │  ├── 情感分析      ✓                          │
+        │  └── 翻译          ✓                          │
+        │  总计: 1 个模型, 多任务复用                     │
+        └─────────────────────────────────────────────┘
+        ```
+
+        ### MoE 架构回顾
+
+        MoE 的核心思想是**稀疏激活**：模型虽然有很多参数（专家），但每次推理只激活其中一小部分。
+
+        ```
+        输入 token
+            ↓
+        ┌─── Router（路由器）──────────────────┐
+        │  计算每个专家的匹配分数               │
+        │  选择 Top-K 个最相关的专家             │
+        │  (通常 K=2，即每次只用 2 个专家)       │
+        └──────────────┬──────────────────────┘
+                       ↓
+        ┌─── 专家池 ──────────────────────────┐
+        │  [专家1] [专家2] [专家3] ... [专家N]  │
+        │     ↓       ↓                        │
+        │   激活    激活    休眠 ... 休眠        │
+        └──────────────┬──────────────────────┘
+                       ↓
+              加权合并输出
+        ```
+
+        **iOS 类比**：MoE 就像一个团队——有设计师、前端、后端、测试等多个"专家"。每个需求不会让所有人都参与，而是路由器（PM）选择最相关的 2 个人来处理。
+
+        ### 端侧图片分类的完整 Pipeline
+
+        由于端侧 LLM 目前主要接受文本输入，图片分类需要一个**视觉-语言桥接**的 pipeline：
+
+        ```
+        ┌─── Stage 1: 图片特征提取 ────────────────────┐
+        │  输入: UIImage / CGImage                       │
+        │  工具: Apple Vision Framework / CoreML         │
+        │  输出: 图片的文本描述 (Caption)                 │
+        │                                                │
+        │  方案 A: VNClassifyImageRequest (Apple 内置)    │
+        │          → "cat, indoor, sitting"              │
+        │  方案 B: CoreML 图片描述模型                    │
+        │          → "一只猫坐在沙发上"                   │
+        │  方案 C: 预定义标签匹配                         │
+        │          → 直接用 Vision 置信度排序             │
+        └──────────────────┬─────────────────────────────┘
+                           ↓
+        ┌─── Stage 2: LLM 智能分类 ───────────────────┐
+        │  输入: 图片描述文本                            │
+        │  工具: 端侧 MoE 模型 (如 DeepSeek, Gemma 4)   │
+        │                                               │
+        │  System Prompt:                               │
+        │  "你是图片分类器，根据描述分类为：             │
+        │   飞机/汽车/鸟/猫/鹿/狗/蛙/马/船/卡车         │
+        │   只输出类别名。"                              │
+        │                                               │
+        │  User: "一只橘色的猫蜷缩在沙发上"             │
+        │  模型输出: "猫"                                │
+        └──────────────────┬─────────────────────────────┘
+                           ↓
+        ┌─── Stage 3: 后处理与置信度 ─────────────────┐
+        │  解析模型输出，匹配预定义类别                  │
+        │  结合 Vision 置信度提高准确率                  │
+        │  输出: 分类结果 + 置信度                       │
+        └───────────────────────────────────────────────┘
+        ```
+
+        ### MoE 在分类任务中的优势
+
+        **1. 专家路由实现"任务自适应"**
+
+        当输入是图片描述时，Router 会自动选择对视觉概念理解最好的专家：
+
+        ```
+        输入: "一架银色飞机在蓝天白云中飞行"
+        Router 选择:
+          → 专家 #7 (擅长物体识别)  权重: 0.6
+          → 专家 #12 (擅长场景理解)  权重: 0.4
+
+        输入: "请翻译这段话为英文"
+        Router 选择:
+          → 专家 #3 (擅长语言转换)  权重: 0.7
+          → 专家 #9 (擅长语法)     权重: 0.3
+        ```
+
+        **2. 计算效率**
+
+        MoE 模型虽然总参数多，但每次推理只用部分参数，速度快：
+
+        | 模型 | 总参数 | 激活参数 | 推理速度 (iPhone 15 Pro) |
+        |------|--------|---------|------------------------|
+        | Dense 3B | 3B | 3B | ~12 t/s |
+        | MoE 8×3B | 24B | 3B | ~10-12 t/s |
+        | MoE 8×7B | 56B | 7B | 内存不足 |
+
+        MoE 的推理速度接近于**激活参数量**对应的 Dense 模型，但总知识量远超。
+
+        **3. 分类任务的特殊优化**
+
+        对分类任务，可以使用**极低温度 + 限制输出长度**的策略：
+
+        ```swift
+        let classificationConfig = GenerationConfig(
+            maxTokens: 32,        // 分类输出很短
+            temperature: 0.1,     // 近似贪心，最确定的答案
+            topP: 0.5,
+            topK: 10,
+            repeatPenalty: 1.0    // 分类不需要惩罚重复
+        )
+        ```
+
+        ### Swift 代码示例
+
+        #### 使用 Vision Framework 获取图片描述
+
+        ```swift
+        import Vision
+
+        func classifyImage(_ image: CGImage) async -> [String] {
+            let request = VNClassifyImageRequest()
+            let handler = VNImageRequestHandler(cgImage: image)
+
+            try? handler.perform([request])
+
+            guard let results = request.results as? [VNClassificationObservation] else {
+                return []
+            }
+
+            // 返回置信度 > 30% 的标签
+            return results
+                .filter { $0.confidence > 0.3 }
+                .prefix(5)
+                .map { "\\($0.identifier): \\(String(format: "%.0f%%", $0.confidence * 100))" }
+        }
+        ```
+
+        #### 结合 LLM 进行智能分类
+
+        ```swift
+        func classifyWithLLM(imageLabels: [String], provider: AIModelProvider) async -> String {
+            let description = imageLabels.joined(separator: ", ")
+            let prompt = \"\"\"
+            你是图片分类器。根据以下 Vision 识别标签，将图片分类为：
+            飞机/汽车/鸟/猫/鹿/狗/蛙/马/船/卡车
+            只输出类别名。
+
+            识别标签：\\(description)
+            \"\"\"
+
+            let messages = [ChatMessage(role: .user, content: prompt)]
+            let config = GenerationConfig(maxTokens: 32, temperature: 0.1)
+
+            var result = ""
+            let stream = provider.chat(messages: messages, config: config)
+            for try await token in stream {
+                result += token.text
+            }
+            return result.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        ```
+
+        ### 性能指标与优化建议
+
+        #### 端侧图片分类性能参考
+
+        | 指标 | 目标值 | 说明 |
+        |------|-------|------|
+        | 分类准确率 | > 85% | 10 类分类任务 |
+        | 单张延迟 | < 500ms | Vision + LLM 总耗时 |
+        | 内存占用 | < 2GB | 模型 + KV Cache |
+        | 吞吐量 | > 5 张/秒 | 批量处理场景 |
+
+        #### 优化策略
+
+        **1. 精简 System Prompt**
+        - 越短的 prompt → 越快的 Prefill → 越低的延迟
+        - 分类任务的 prompt 应控制在 100 token 以内
+
+        **2. 限制输出长度**
+        - `maxTokens = 32` 足够输出类别名
+        - 避免模型"啰嗦"地解释分类理由
+
+        **3. 模型常驻内存**
+        - 如果分类是高频操作，避免每次加载/卸载
+        - 监控内存水位，在 `didReceiveMemoryWarning` 时才卸载
+
+        **4. 批量处理**
+        - 对相册分类等场景，不要逐张 load → classify → unload
+        - 加载一次模型，分类完所有图片再卸载
+
+        ### 端侧 MoE 模型推荐
+
+        | 模型 | 总参数 | 激活参数 | 适用场景 |
+        |------|--------|---------|---------|
+        | Gemma 4 E2B | 2.3B | ~2B | 轻量分类，iPhone 15+ |
+        | DeepSeek MoE 16B | 16B | ~2.8B | 高精度分类 (内存需求大) |
+        | Mixtral 8×7B | 46.7B | ~12.9B | 服务器/iPad Pro |
+
+        > **当前推荐**：对于 iPhone 端侧图片分类，建议使用 **Gemma 4 E2B** 或同级别的 Dense 模型（如 Qwen2.5-1.5B）。MoE 的优势在于**同一个模型可以复用到多种任务**，减少总模型数量。
+
+        ### 与传统方案的对比
+
+        | 维度 | CoreML MobileNet | 端侧 LLM 分类 |
+        |------|-----------------|---------------|
+        | 准确率 | 90%+ (ImageNet) | 80-90% (取决于描述质量) |
+        | 延迟 | 10-50ms | 200-500ms |
+        | 灵活性 | 固定类别 | 任意类别（改 prompt 即可）|
+        | 模型大小 | 10-30MB | 0.5-2GB |
+        | 可解释性 | 低（概率分布）| 高（可以要求解释原因）|
+        | 多任务 | 需要多个模型 | 一个模型多种任务 |
+
+        > **最佳实践**：对于类别固定、要求高速的场景，用 CoreML。对于类别灵活、需要理解上下文的场景，用 LLM。两者可以结合：CoreML 做粗分类 → LLM 做细分类或二次确认。
+        """
+    ),
 ]
 
 #Preview {

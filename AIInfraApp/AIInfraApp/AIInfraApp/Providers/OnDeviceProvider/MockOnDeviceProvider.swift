@@ -13,6 +13,7 @@ final class MockOnDeviceProvider: AIModelProvider, @unchecked Sendable {
     let providerType: AIModelProviderType = .onDevice
     let architectureType: ModelArchitectureType
     let modelInfo: ModelInfo
+    let supportsImageClassification: Bool
     private(set) var state: AIModelState = .unloaded
     private var isCancelled = false
 
@@ -31,6 +32,7 @@ final class MockOnDeviceProvider: AIModelProvider, @unchecked Sendable {
         self.description = description
         self.descriptionEN = description
         self.architectureType = architectureType
+        self.supportsImageClassification = false
         self.modelInfo = ModelInfo(
             family: family,
             parameterCount: parameterCount,

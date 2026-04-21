@@ -224,6 +224,7 @@ struct ModelDownloadStoreView: View {
         case .english: return .indigo
         case .code: return .purple
         case .reasoning: return .teal
+        case .imageClassification: return .orange
         }
     }
 
@@ -267,16 +268,55 @@ struct ModelDownloadStoreView: View {
             }
 
         case .completed:
-            HStack {
-                Label(L10n.downloaded, systemImage: "checkmark.circle.fill")
-                    .font(.caption)
-                    .foregroundStyle(.green)
-                Spacer()
-                Button(role: .destructive) {
-                    downloadManager.deleteModel(model)
-                } label: {
-                    Text(L10n.deleteBtn)
+            VStack(spacing: 4) {
+                HStack {
+                    Label(L10n.downloaded, systemImage: "checkmark.circle.fill")
                         .font(.caption)
+                        .foregroundStyle(.green)
+                    Spacer()
+                    Button(role: .destructive) {
+                        downloadManager.deleteModel(model)
+                    } label: {
+                        Text(L10n.deleteBtn)
+                            .font(.caption)
+                    }
+                }
+
+                // 多模态模型：显示 mmproj 下载状态
+                if model.isMultimodal {
+                    let mmprojId = model.id + "-mmproj"
+                    let mmprojState = downloadManager.downloadStates[mmprojId]
+                    let mmprojDownloaded = downloadManager.isMmprojDownloaded(model)
+
+                    if mmprojDownloaded {
+                        HStack {
+                            Label("mmproj " + L10n.downloaded, systemImage: "eye.circle.fill")
+                                .font(.caption2)
+                                .foregroundStyle(.orange)
+                            Spacer()
+                        }
+                    } else if case .downloading(let progress) = mmprojState {
+                        HStack {
+                            Text("mmproj \(L10n.downloading)")
+                                .font(.caption2)
+                            ProgressView(value: progress)
+                                .frame(width: 80)
+                        }
+                    } else {
+                        HStack {
+                            Text("mmproj \(L10n.notDownloaded)")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Button {
+                                downloadManager.downloadMmproj(model)
+                            } label: {
+                                Text(L10n.downloadTestImages)
+                                    .font(.caption2)
+                            }
+                            .buttonStyle(.borderless)
+                        }
+                    }
                 }
             }
 
