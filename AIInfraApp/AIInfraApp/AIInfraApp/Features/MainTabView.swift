@@ -20,11 +20,6 @@ struct MainTabView: View {
                 .tabItem {
                     Label(L10n.tabModels, systemImage: "cpu.fill")
                 }
-
-            LearnView()
-                .tabItem {
-                    Label(L10n.tabLearn, systemImage: "book.fill")
-                }
         }
     }
 }
