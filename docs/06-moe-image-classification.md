@@ -74,23 +74,188 @@ Step 4: 后处理
 ### 用 iOS 代码类比每一步
 
 ```swift
-// 你平时写 iOS 图片处理是这样的：
+// Apple Vision 的图片识别（传统方案）：
 let image = UIImage(named: "cat.jpg")!               // Step 1: 加载图片
 let features = VNClassifyImageRequest()                // Step 2: 特征提取
 let handler = VNImageRequestHandler(cgImage: image.cgImage!)
 try handler.perform([features])                        // Step 3: 推理
 let result = features.results?.first?.identifier       // Step 4: 获取结果
+// 输出: "tabby_cat" — 从 1000 个固定类别中选一个
 
-// 多模态大模型的流程本质上是一样的，只是每一步的实现不同：
-let imageData = image.jpegData(compressionQuality: 0.8)!  // Step 1: 图片数据
-let bitmap = mtmd_bitmap_init(width, height, rgbBytes)     // Step 2: 视觉编码
-let chunks = mtmd_tokenize(ctx, prompt, bitmap)            // Step 3: LLM 推理
-let result = llama_decode(ctx, chunks)                     // Step 4: 获取结果
+// 多模态大模型的图片识别（本项目实现）：
+let imageData = image.jpegData(compressionQuality: 0.85)!  // Step 1: 图片转 JPEG
+let bitmap = mtmd_helper_bitmap_init_from_buf(ctx, ptr, len) // Step 2: CLIP 视觉编码
+let chunks = mtmd_tokenize(ctx, prompt, &bitmap, 1)        // Step 3: 图片+文本分词
+mtmd_helper_eval_chunks(ctx, lctx, chunks, ...)            // Step 4: 视觉 token 注入 LLM
+let token = llama_sampler_sample(sampler, lctx, -1)        // Step 5: 生成回答
+// 输出: "这是一只橘色虎斑猫" — 自由文本，任意问题
 ```
+
+**关键区别**：
+- Apple Vision 的"特征提取"和"推理"是一步完成的黑盒，只能输出预定义类别
+- 大模型把"视觉编码"和"语言理解"分成两步，中间通过**视觉 token**连接，可以回答任意问题
 
 ---
 
-## mmproj 是什么？为什么需要两个文件？
+## 大模型 vs CoreML：图片是怎么被"认识"的？
+
+这是理解两种方案最核心的差异。
+
+### CoreML/Vision 的识别原理（传统 CNN）
+
+```
+CoreML MobileNet 怎么认识一张猫的照片：
+
+Step 1: 卷积层提取边缘、纹理
+┌─────────────────────────────────────────┐
+│  输入: 224×224×3 RGB 像素                 │
+│       ↓                                  │
+│  Conv Layer 1: 检测边缘（横线、竖线、曲线） │
+│  Conv Layer 2: 检测纹理（毛发、条纹）       │
+│  Conv Layer 3: 检测部件（耳朵、眼睛、鼻子） │
+│  Conv Layer 4: 检测整体（猫脸、猫身）       │
+│       ↓                                  │
+│  全局平均池化 → 1×1×1280 特征向量          │
+└─────────────────────┬───────────────────┘
+                      ↓
+Step 2: 全连接层分类
+┌─────────────────────────────────────────┐
+│  1280 维特征 → 1000 维输出                │
+│  每一维对应一个 ImageNet 类别              │
+│       ↓                                  │
+│  softmax → [猫: 0.87, 狗: 0.05, ...]     │
+│       ↓                                  │
+│  输出: "Egyptian_cat" (置信度 87%)         │
+└─────────────────────────────────────────┘
+
+特点：
+✓ 极快 (5-8ms)
+✓ 一次前向传播就出结果
+✗ 只能输出 1000 个固定类别之一
+✗ 不理解"为什么是猫"——只知道概率
+✗ 想加新类别？重新训练整个模型
+```
+
+### 大模型的识别原理（Vision Transformer + LLM）
+
+```
+多模态大模型怎么认识一张猫的照片：
+
+Step 1: CLIP 视觉编码器 (mmproj) — "看"图片
+┌─────────────────────────────────────────────┐
+│  输入: 384×384×3 JPEG 图片字节               │
+│       ↓ stb_image 解码                      │
+│  切割成 14×14 像素的 patches                 │
+│  384÷14 = 27×27 = 729 个 patches            │
+│       ↓                                     │
+│  Vision Transformer (ViT)                    │
+│  每个 patch → 一个向量 (embedding)            │
+│  patches 之间做 self-attention               │
+│  "左上角的 patch 是耳朵，和右边的 patch 连接"  │
+│       ↓                                     │
+│  Projection Layer                            │
+│  把视觉向量映射到语言模型的维度空间             │
+│       ↓                                     │
+│  输出: 576 个"视觉 token"                    │
+│  每个 token 是一个 2048/4096 维向量           │
+│                                             │
+│  类比 iOS:                                   │
+│  像把一张图片 OCR 成了 576 个"视觉单词"        │
+│  这些"单词"不是文字，而是数字向量              │
+│  但语言模型能像理解文字一样理解它们             │
+└─────────────────────┬───────────────────────┘
+                      ↓
+Step 2: 语言模型 — "理解"图片
+┌─────────────────────────────────────────────┐
+│  输入序列: [视觉token×576] + [文本token]      │
+│                                             │
+│  "图片说的是":                                │
+│  [0.12,-0.34,...] [0.56,0.78,...] ...        │
+│  ← 576 个视觉 token (CLIP 编码的图片内容)     │
+│                                             │
+│  "请描述这张图片":                             │
+│  [1234] [5678] [9012] ...                   │
+│  ← 文本 token (用户的提问)                    │
+│                                             │
+│  Transformer 层处理:                          │
+│  视觉 token 和文本 token 做 cross-attention   │
+│  模型"看到"图片的同时"听到"用户的问题           │
+│       ↓                                     │
+│  自回归生成: 逐字输出回答                      │
+│  "这" → "是" → "一" → "只" → "橘" → "色" ... │
+└─────────────────────────────────────────────┘
+
+特点：
+✓ 理解图片内容的语义，不只是分类
+✓ 可以回答关于图片的任意问题
+✓ 改 prompt 就能做不同任务（分类、描述、OCR）
+✓ 支持中英文自由回答
+✗ 较慢 (500ms-5s)
+✗ 内存占用大 (500MB-4GB)
+```
+
+### 在端侧模型中，输入图片的完整数据流
+
+下面是我们 App 中的实际代码执行路径：
+
+```
+用户在对话页选择一张照片
+          ↓
+┌─── ChatView.swift ───────────────────────────┐
+│  PhotosPicker → UIImage → 缩放到 384×384      │
+│  → jpegData(compressionQuality: 0.85)         │
+│  → 存入 ChatMessage.imageData                 │
+└──────────────────┬────────────────────────────┘
+                   ↓
+┌─── LlamaOnDeviceProvider.swift ──────────────┐
+│  检测 hasImages && isMultimodalLoaded          │
+│  → 走多模态路径: engine.generateWithImages()   │
+└──────────────────┬────────────────────────────┘
+                   ↓
+┌─── LlamaEngine.swift (generateWithImages) ───┐
+│                                               │
+│  1. mtmd_helper_bitmap_init_from_buf()        │
+│     JPEG 字节 → stb_image 解码 → RGB bitmap   │
+│     (mtmd 内部自动处理格式转换和缩放)            │
+│                                               │
+│  2. prompt 中插入 <__media__> 标记             │
+│     "<__media__>\n请描述这张图片"               │
+│     → applyChatTemplate() 格式化               │
+│                                               │
+│  3. mtmd_tokenize()                           │
+│     文本 + bitmap → 分词为 chunks:             │
+│     [文本chunk1] [图片chunk] [文本chunk2]       │
+│                                               │
+│  4. mtmd_helper_eval_chunks()  ← 核心！        │
+│     自动处理所有 chunks:                        │
+│     ├─ 文本 chunk → llama_decode()             │
+│     └─ 图片 chunk →                           │
+│        ├─ CLIP 编码 (CPU, 1-3秒)              │
+│        ├─ 构建 embedding batch                 │
+│        │  (tokens=nil, embd=视觉向量指针)       │
+│        ├─ 设置 position encoding               │
+│        ├─ 处理 non-causal attention            │
+│        └─ llama_decode() 注入视觉 token        │
+│                                               │
+│  5. llama_sampler_sample() 逐 token 生成      │
+│     → UTF8StreamDecoder 解码                   │
+│     → onToken 回调给 UI                       │
+└───────────────────────────────────────────────┘
+```
+
+### 两种方案在端侧的关键差异
+
+| 维度 | CoreML (MobileNet) | 大模型 (mtmd + LLM) |
+|------|-------------------|-------------------|
+| **输入格式** | CVPixelBuffer (固定 224×224) | JPEG/PNG 字节流 (任意大小) |
+| **图片预处理** | 开发者手动缩放+归一化 | mtmd 内部自动处理 |
+| **特征提取** | CNN 卷积层 (硬件加速) | Vision Transformer + CLIP |
+| **推理方式** | 一次前向传播 → 概率分布 | 自回归逐 token 生成 |
+| **输出格式** | 固定类别标签 + 置信度 | 自由文本（任意内容） |
+| **硬件利用** | Neural Engine (专用芯片) | Metal GPU (通用计算) |
+| **CLIP 编码** | 不需要 | CPU 上 1-3 秒 |
+| **能否追问** | ❌ 不能 | ✅ "图里的猫是什么品种？" |
+| **能否改任务** | ❌ 重新训练 | ✅ 改 prompt 即可 |
 
 这是新手最常见的困惑：为什么多模态模型需要下载**两个** GGUF 文件？
 
@@ -405,39 +570,45 @@ func classifyWithCoreML(_ image: CGImage) async throws -> String {
 }
 ```
 
-### 方案 C: MoE 多模态大模型（本项目）
+### 方案 C: 多模态大模型（本项目实际实现）
 
 ```swift
-import llama
+// 本项目的真实代码路径 (LlamaEngine.generateWithImages)
 
-func classifyWithMoE(_ imageData: Data, provider: AIModelProvider) async -> String {
-    let prompt = """
-    你是图片分类器。观察图片，分类为：
-    airplane/automobile/bird/cat/deer/dog/frog/horse/ship/truck
-    只输出类别名。
-    """
+func classifyWithMultimodalLLM(_ imageData: Data, provider: AIModelProvider) async -> String {
+    // prompt 中不需要描述图片内容——模型直接"看"图片
+    let prompt = "What do you see in this image?"
     
+    // 图片数据直接附带在消息中
     let message = ChatMessage(
-        role: .user, 
+        role: .user,
         content: prompt,
-        imageData: [imageData]  // 直接传入图片数据
+        imageData: [imageData]  // ← JPEG 字节，不需要任何预处理
     )
     
     var result = ""
-    let stream = provider.chat(messages: [message], config: .init(
-        maxTokens: 32, temperature: 0.1
-    ))
+    let stream = provider.chat(messages: [message], config: .default)
     
     for try await token in stream {
         result += token.text
     }
     
-    return result.trimmingCharacters(in: .whitespacesAndNewlines)
-    // 输出: "cat"
-    // 耗时: ~500ms
-    // 内存: ~1.5GB
-    // 但！可以随时改 prompt 分类任何东西！
+    return result
+    // 输出: "The image shows an orange tabby cat curled up on a sofa..."
+    // 耗时: 3-10s (含 CLIP 编码 + LLM 生成)
+    // 内存: 1-4GB (取决于模型大小)
+    //
+    // 内部执行流程:
+    // 1. imageData → mtmd_helper_bitmap_init_from_buf() (stb_image 解码)
+    // 2. prompt 插入 <__media__> 标记
+    // 3. mtmd_tokenize() → [文本chunk, 图片chunk, 文本chunk]
+    // 4. mtmd_helper_eval_chunks() → CLIP 编码 + embedding 注入
+    // 5. llama_sampler_sample() → 逐 token 生成回答
 }
+```
+
+**注意**：和之前版本不同，我们**不再通过 CoreML/Vision 获取图片描述再转给文本模型**。
+图片 JPEG 字节直接通过 mtmd API 送入模型的视觉编码器（CLIP），模型真正"看到"了图片像素。
 ```
 
 ---
