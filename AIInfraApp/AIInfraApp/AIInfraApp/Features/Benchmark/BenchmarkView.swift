@@ -23,6 +23,9 @@ struct BenchmarkView: View {
     @State private var imageClassificationProgress: Double = 0
     @State private var imageClassificationModelId: String?
     @State private var useRealImages = false  // 真实图片 vs 文本描述模式
+    @State private var imagesPerCategory = 5   // 每类图片数（5/10/20/50）
+    @State private var imageClassificationCancelled = false  // 取消标志
+    @State private var currentClassifyingItem = ""  // 当前正在识别的项目
     @StateObject private var datasetManager = ImageDatasetManager.shared
 
     private var testCases: [BenchmarkTestCase] {
@@ -600,6 +603,25 @@ struct BenchmarkView: View {
                 .pickerStyle(.segmented)
                 .font(.caption)
 
+                // 每类图片数量选择
+                HStack {
+                    Text(L10n.imagesPerCategory)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Picker("", selection: $imagesPerCategory) {
+                        Text("5").tag(5)
+                        Text("10").tag(10)
+                        Text("20").tag(20)
+                        Text("50").tag(50)
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 200)
+                }
+                Text("共 \(imagesPerCategory * 10) 张 (10 类 × \(imagesPerCategory))")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+
                 // 真实图片模式：下载控制区
                 if useRealImages {
                     VStack(alignment: .leading, spacing: 6) {
@@ -697,17 +719,35 @@ struct BenchmarkView: View {
                     }
                 }
 
+                // 运行进度 + 当前识别项
                 if isRunningImageClassification {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(L10n.imageClassifying)
-                            .font(.caption.weight(.medium))
+                        HStack {
+                            Text(L10n.currentlyClassifying)
+                                .font(.caption.weight(.medium))
+                            Spacer()
+                            Button(L10n.stopTest) {
+                                imageClassificationCancelled = true
+                            }
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                            .buttonStyle(.borderless)
+                        }
+                        if !currentClassifyingItem.isEmpty {
+                            Text(currentClassifyingItem)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                        let totalItems = imagesPerCategory * 10
                         ProgressView(value: imageClassificationProgress)
-                        Text("\(Int(imageClassificationProgress * 500))/500")
+                        Text("\(Int(imageClassificationProgress * Double(totalItems)))/\(totalItems)")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
                 }
 
+                // 开始按钮
                 Button {
                     Task { await runImageClassification() }
                 } label: {
@@ -752,45 +792,84 @@ struct BenchmarkView: View {
                 let speedItemsPerSec = totalTime > 0 ? Double(totalCount) / totalTime : 0
                 let avgTTFT = modelResults.map(\.metrics.timeToFirstToken).reduce(0, +) / max(Double(totalCount), 1)
 
-                DisclosureGroup {
-                    // 各类别准确率
-                    imageClassificationCategoryBreakdown(results: modelResults)
-                } label: {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(modelName)
-                            .font(.subheadline.weight(.semibold))
-                        HStack(spacing: 16) {
-                            VStack(spacing: 1) {
-                                Text(L10n.accuracy)
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                                Text(String(format: "%.1f%%", accuracyPct))
-                                    .font(.title3.weight(.bold).monospacedDigit())
-                                    .foregroundStyle(accuracyPct >= 80 ? .green : accuracyPct >= 50 ? .orange : .red)
-                            }
-                            VStack(spacing: 1) {
-                                Text(L10n.classificationSpeed)
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                                Text(String(format: "%.1f %@", speedItemsPerSec, L10n.itemsPerSec))
-                                    .font(.caption.weight(.semibold).monospacedDigit())
-                            }
-                            VStack(spacing: 1) {
-                                Text(L10n.avgTTFT)
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                                Text(String(format: "%.0fms", avgTTFT * 1000))
-                                    .font(.caption.weight(.semibold).monospacedDigit())
-                            }
-                            VStack(spacing: 1) {
-                                Text(L10n.totalCases)
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                                Text("\(correctCount)/\(totalCount)")
-                                    .font(.caption.weight(.semibold).monospacedDigit())
-                            }
+                // 总览
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(modelName)
+                        .font(.subheadline.weight(.semibold))
+                    HStack(spacing: 16) {
+                        VStack(spacing: 1) {
+                            Text(L10n.accuracy)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            Text(String(format: "%.1f%%", accuracyPct))
+                                .font(.title3.weight(.bold).monospacedDigit())
+                                .foregroundStyle(accuracyPct >= 80 ? .green : accuracyPct >= 50 ? .orange : .red)
+                        }
+                        VStack(spacing: 1) {
+                            Text(L10n.classificationSpeed)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            Text(String(format: "%.2f %@", speedItemsPerSec, L10n.itemsPerSec))
+                                .font(.caption.weight(.semibold).monospacedDigit())
+                        }
+                        VStack(spacing: 1) {
+                            Text(L10n.avgTTFT)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            Text(String(format: "%.0fms", avgTTFT * 1000))
+                                .font(.caption.weight(.semibold).monospacedDigit())
+                        }
+                        VStack(spacing: 1) {
+                            Text(L10n.totalCases)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            Text("\(correctCount)/\(totalCount)")
+                                .font(.caption.weight(.semibold).monospacedDigit())
                         }
                     }
+                }
+
+                // 每条结果详情（显示模型输出）
+                ForEach(modelResults) { result in
+                    HStack(alignment: .top, spacing: 8) {
+                        // 对错标记
+                        Image(systemName: result.qualityScore.totalScore >= 80 ? "checkmark.circle.fill" : "xmark.circle.fill")
+                            .foregroundStyle(result.qualityScore.totalScore >= 80 ? .green : .red)
+                            .font(.caption)
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            // 用例名（如 "Real-cat-03" 或 "图片分类-猫-03"）
+                            Text(result.testCaseName)
+                                .font(.caption2.weight(.medium))
+
+                            // 模型实际输出
+                            HStack(spacing: 4) {
+                                Text(L10n.modelOutput + ":")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                Text(result.response.trimmingCharacters(in: .whitespacesAndNewlines).prefix(60).description)
+                                    .font(.caption2.weight(.medium))
+                                    .foregroundStyle(result.qualityScore.totalScore >= 80 ? .green : .red)
+                                    .lineLimit(1)
+                            }
+
+                            // 预期答案
+                            if let rule = result.qualityScore.ruleResults.first {
+                                Text(rule.detail)
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
+                                    .lineLimit(1)
+                            }
+                        }
+
+                        Spacer()
+
+                        // 耗时
+                        Text(String(format: "%.1fs", result.metrics.totalTime))
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(.tertiary)
+                    }
+                    .padding(.vertical, 1)
                 }
             }
         } header: {
@@ -936,8 +1015,10 @@ struct BenchmarkView: View {
         guard let provider = eligibleProviders.first(where: { $0.id == modelId }) else { return }
 
         isRunningImageClassification = true
+        imageClassificationCancelled = false
         imageClassificationResults.removeAll()
         imageClassificationProgress = 0
+        currentClassifyingItem = ""
 
         // 加载模型
         if provider.state == .unloaded || provider.state != .ready {
@@ -949,30 +1030,47 @@ struct BenchmarkView: View {
             }
         }
 
-        // 根据模式选择测试用例
-        let cases = useRealImages ? realImageTestCases : imageTestCases
-        let totalCount = cases.count
+        // 根据模式选择测试用例，并限制每类数量
+        let allCases = useRealImages ? realImageTestCases : imageTestCases
+        // 按类别分组，每类取前 imagesPerCategory 条
+        var selectedCases: [BenchmarkTestCase] = []
+        var categoryCounts: [String: Int] = [:]
+        for testCase in allCases {
+            // 从用例名中提取类别（如 "Real-cat-03" → "cat"，"图片分类-猫-03" → "猫"）
+            let label = testCase.qualityRules.first(where: { $0.type == .exactClassification })?.params.first ?? "unknown"
+            let count = categoryCounts[label, default: 0]
+            if count < imagesPerCategory {
+                selectedCases.append(testCase)
+                categoryCounts[label] = count + 1
+            }
+        }
 
-        // 使用低温度配置以获得更确定的分类输出
+        let totalCount = selectedCases.count
+
+        // 使用低温度配置
         let classificationConfig = GenerationConfig(
-            maxTokens: 32,
+            maxTokens: 64,
             temperature: 0.1,
             topP: 0.5,
             topK: 10,
             repeatPenalty: 1.0
         )
 
-        for (idx, testCase) in cases.enumerated() {
-            // 构造消息：真实图片模式从本地数据集加载图片数据
+        for (idx, testCase) in selectedCases.enumerated() {
+            // 检查取消
+            if imageClassificationCancelled { break }
+
+            // 更新当前识别项
+            currentClassifyingItem = "\(idx + 1)/\(totalCount) \(testCase.name)"
+
+            // 构造消息
             var imageDataList: [Data]?
             if let imageNames = testCase.testImageNames, !imageNames.isEmpty {
                 imageDataList = imageNames.compactMap { relativePath in
-                    // 从 Documents/ImageDatasets/ 加载（真实图片测试用例使用相对路径）
                     let documentsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
                     let fullPath = documentsDir.appendingPathComponent("ImageDatasets").appendingPathComponent(relativePath)
                     return try? Data(contentsOf: fullPath)
                 }
-                // 如果没有加载到任何图片（未下载），imageDataList 设为 nil 走文本路径
                 if imageDataList?.isEmpty == true {
                     imageDataList = nil
                 }
@@ -995,20 +1093,25 @@ struct BenchmarkView: View {
                 response = "[错误: \(error.localizedDescription)]"
             }
 
-            if let metrics = finalMetrics {
-                let score = QualityScorer.evaluate(response: response, rules: testCase.qualityRules)
-                let result = BenchmarkResult(
-                    testCaseId: testCase.id,
-                    testCaseName: testCase.name,
-                    modelName: provider.displayName,
-                    providerType: provider.providerType,
-                    architectureType: provider.architectureType,
-                    metrics: metrics,
-                    response: response,
-                    qualityScore: score
-                )
-                imageClassificationResults.append(result)
-            }
+            let metrics = finalMetrics ?? GenerationMetrics(
+                modelName: provider.displayName,
+                prefillTime: 0, prefillTokensPerSecond: 0,
+                decodeTime: 0, decodeTokensPerSecond: 0,
+                timeToFirstToken: 0, totalGeneratedTokens: 0,
+                totalTime: 0, peakMemoryUsage: 0, inputTokenCount: 0
+            )
+            let score = QualityScorer.evaluate(response: response, rules: testCase.qualityRules)
+            let result = BenchmarkResult(
+                testCaseId: testCase.id,
+                testCaseName: testCase.name,
+                modelName: provider.displayName,
+                providerType: provider.providerType,
+                architectureType: provider.architectureType,
+                metrics: metrics,
+                response: response,
+                qualityScore: score
+            )
+            imageClassificationResults.append(result)
 
             imageClassificationProgress = Double(idx + 1) / Double(totalCount)
         }
@@ -1016,6 +1119,7 @@ struct BenchmarkView: View {
         // 卸载模型释放内存
         provider.unload()
         isRunningImageClassification = false
+        currentClassifyingItem = ""
     }
 }
 

@@ -234,4 +234,9 @@ enum L10n {
 
     // MARK: - Image Chat
     static var imageAttached: String { isEn ? "[Image attached]" : "[已附带图片]" }
+    static var imagesPerCategory: String { isEn ? "Images/Category" : "每类图片数" }
+    static var modelOutput: String { isEn ? "Output" : "模型输出" }
+    static var expected: String { isEn ? "Expected" : "预期" }
+    static var stopTest: String { isEn ? "Stop" : "停止" }
+    static var currentlyClassifying: String { isEn ? "Classifying" : "正在识别" }
 }
